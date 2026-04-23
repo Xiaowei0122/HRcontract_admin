@@ -82,31 +82,91 @@ const rules = {
 }
 
 // 管理员登录逻辑
-const handleLogin = () => {
-  loading.value = true
-  // 模拟登录
-  setTimeout(() => {
-    if (loginForm.username === 'admin' && loginForm.password === '123456') {
-      localStorage.setItem('userRole', 'admin')
-      localStorage.setItem('isGuest', 'false')
-      ElMessage.success('欢迎回来，管理员')
-      router.push('/') // 跳转到你之前的合同管理主页
-    } else {
-      ElMessage.error('账号或密码错误')
-    }
-    loading.value = false
-  }, 1000)
-}
+const handleLogin = async () => {
+  if (!loginForm.username || !loginForm.password) {
+    return ElMessage.warning('请输入账号和密码')
+  }
 
+  loading.value = true
+  console.log("准备发起请求...")
+  try {
+    // 调用本地 FastAPI 后端
+    const response = await fetch('http://localhost:9080/api/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        username: loginForm.username,
+        password: loginForm.password
+      })
+    })
+
+    const res = await response.json()
+    // -- 处理后端响应，根据状态码判断登录结果 --
+    if (response.ok) {
+      // 登录成功：存储后端返回的角色和状态
+      localStorage.setItem('userRole', res.userRole)
+      localStorage.setItem('isGuest', String(res.isGuest))
+      localStorage.setItem('token', res.token) // 存入 token 方便后续鉴权
+      
+      ElMessage.success(res.userRole === 'admin' ? '欢迎回来，管理员' : '登录成功')
+      router.push('/')
+    } else {
+      // 登录失败：显示后端返回的错误信息
+      ElMessage.error(res.detail || '账号或密码错误')
+    }
+  } catch (error) {
+    console.error('API Error:', error)
+    ElMessage.error('无法连接到后端服务器，请检查 API 是否启动')
+  } finally {
+    loading.value = false
+  }
+}
+//账户退出逻辑
+const handleLogout = async () => {
+  try {
+    // 1. 同步通知后端
+    const response = await fetch('http://localhost:9080/api/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    })
+    
+    const res = await response.json()
+    console.log("%c[同步状态]", "color: #f56c6c; font-weight: bold;", res.message)
+
+  } catch (error) {
+    console.warn("后端退出接口调用失败，执行本地强制清理")
+  } finally {
+    // 2. 无论后端是否成功，必须清理本地状态
+    localStorage.removeItem('userRole')
+    localStorage.removeItem('isGuest')
+    localStorage.removeItem('token')
+    
+    // 3. 提示并跳转
+    ElMessage.success('已安全退出系统')
+    router.push('/login')
+  }
+}
 // 访客模式逻辑
-const enterAsGuest = () => {
-  localStorage.setItem('userRole', 'visitor')
-  localStorage.setItem('isGuest', 'true')
-  ElMessage({
-    message: '已以访客身份进入，仅开放查询与下载权限',
+const enterAsGuest = async () => {
+  try {
+    const response = await fetch('http://localhost:9080/api/guest')
+    const res = await response.json()
+    
+    // 同步后端返回的状态
+    localStorage.setItem('userRole', res.userRole)
+    localStorage.setItem('isGuest', String(res.isGuest))
+    
+    console.log("%c[后端通知]", "color: #e6a23c;", res.message)
+    ElMessage({
+    message: res.message,
     type: 'warning'
   })
-  router.push('/') // 直接进入主页
+    router.push('/')
+  } catch (error) {
+    ElMessage.error('无法连接后端访客通道')
+  }
 }
 </script>
 

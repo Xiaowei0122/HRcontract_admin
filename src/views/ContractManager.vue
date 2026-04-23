@@ -32,7 +32,15 @@
       </el-button>
       
       <el-divider direction="vertical" />
-      
+      <el-button 
+        link 
+        :icon="Tickets" 
+        @click="$router.push('/system-settings')"
+        :disabled="isGuest"
+      >
+        系统设置
+      </el-button>
+
       <el-button 
         class="logout-btn"
         link 
@@ -310,13 +318,36 @@ const categoryColorMap = { "计算机设备": "#3b82f6", "办公用品": "#10b98
 const statusList = ["草稿", "待签署", "已签署", "已终止"]
 const statusTagMap = { '已签署': 'success', '待签署': 'warning', '草稿': 'info', '已终止': 'danger' }
 
-const contracts = ref([
-  { id: 1, name: '2026年度实验室服务器群组采购', contractNo: 'HT-2026-JSJ-001', category: '计算机设备', amount: 128.50, status: '已签署', customer: '华南理工大学', customerType: '高校', contractType: '采购合同', contactPerson: '张教授', signDate: '2026-03-12' },
-  { id: 2, name: '省政务中心办公耗材框架协议', contractNo: 'HT-2026-BG-042', category: '办公用品', amount: 12.80, status: '待签署', customer: '省政务服务中心', customerType: '党政机关', contractType: '框架合同', contactPerson: '李主任', signDate: '2026-04-05' },
-  { id: 3, name: '智慧校园多媒体终端升级', contractNo: 'HT-2026-DZ-015', category: '电子产品', amount: 45.00, status: '已签署', customer: '市第一中学', customerType: '事业单位', contractType: '销售合同', contactPerson: '王老师', signDate: '2026-02-28' },
-  { id: 4, name: '企业云端协作系统定制服务', contractNo: 'HT-2026-FW-009', category: '计算机设备', amount: 86.40, status: '草稿', customer: '中铁建某局分公司', customerType: '国企', contractType: '服务合同', contactPerson: '赵经理', signDate: '-' },
-  { id: 5, name: '员工端午节福利礼品采购', contractNo: 'HT-2026-FL-003', category: '福利产品', amount: 5.20, status: '已终止', customer: '腾讯科技(深圳)', customerType: '民营企业', contractType: '采购合同', contactPerson: '陈女士', signDate: '2026-01-15' }
-])
+
+// --- 请求主要数据与状态 ---
+const contracts = ref([])
+const loading = ref(false)
+// 获取合同数据的核心逻辑
+const fetchTableData = async () => {
+  loading.value = true
+  const role = localStorage.getItem('userRole') || 'guest' // 同步当前的登录角色
+  
+  try {
+    // 这里的路径对应你在 contracts.py 中定义的路由
+    const response = await fetch(`http://localhost:9080/api/contracts?role=${role}`)
+    if (response.ok) {
+      const data = await response.json()
+      contracts.value = data // 100% 同步后端那 7 条数据
+      console.log("--- 合同数据同步成功 ---")
+    } else {
+      console.error("后端拒绝了数据请求")
+    }
+  } catch (error) {
+    console.error("API 连接失败，请检查后端是否启动")
+  } finally {
+    loading.value = false
+  }
+}
+
+// 页面挂载时立即获取数据
+onMounted(() => {
+  fetchTableData()
+})
 
 
 // --- 弹窗逻辑整合 ---
@@ -348,19 +379,70 @@ const handleAutoRecognize = (file) => {
   ElMessage.success(`自动识别：已填充合同名称为 "${fileName}"`)
 }
 
-const handleSave = () => {
+const handleSave = async () => {
   if (!form.name) return ElMessage.warning('合同名称不能为空')
-  if (form.id) {
-    const index = contracts.value.findIndex(c => c.id === form.id)
-    contracts.value[index] = { ...form }
-  } else {
-    contracts.value.unshift({ ...form, id: Date.now() })
+
+  const payload = {
+    name: form.name,
+    contractNo: form.contractNo,
+    contractType: form.contractType,
+    category: form.category,
+    customerType: form.customerType,
+    customer: form.customer,
+    contactPerson: form.contactPerson,
+    contactPhone: form.contactPhone,
+    servicePeriod: form.servicePeriod,
+    signDate: form.signDate,
+    amount: Number(form.amount) || 0,
+    status: form.status,
+    remark: form.remark
   }
-  modalVisible.value = false
-  ElMessage.success('保存成功')
+
+  try {
+    let response
+    if (form.id) {
+      response = await fetch(`http://localhost:9080/api/contracts/${form.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+    } else {
+      response = await fetch('http://localhost:9080/api/contracts/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+    }
+
+    const res = await response.json()
+    if (!response.ok) {
+      throw new Error(res.detail || res.message || '保存失败')
+    }
+
+    const record = res.contract
+    if (form.id) {
+      const index = contracts.value.findIndex(c => c.id === form.id)
+      if (index > -1) {
+        contracts.value[index] = { ...record }
+      }
+    } else {
+      contracts.value.unshift({ ...record })
+    }
+
+    modalVisible.value = false
+    ElMessage.success('保存成功')
+  } catch (error) {
+    console.error('合同保存失败：', error)
+    ElMessage.error(error.message || '保存合同时出错')
+  }
 }
 
-// --- 统计/筛选/显示逻辑 (保持不变) ---
+// --- 统计/筛选/显示逻辑 ---
+// 确保 toggleField 是独立定义的顶层常量
+const toggleField = (k) => { 
+  const i = visibleFields.value.indexOf(k); 
+  i > -1 ? visibleFields.value.splice(i, 1) : visibleFields.value.push(k); 
+}
 const statistics = computed(() => [
   { title: '合同总量', value: contracts.value.length, unit: '份', icon: Files, color: '#3b82f6' },
   { title: '累计总金额', value: contracts.value.reduce((s, c) => s + c.amount, 0).toFixed(1), unit: '万', icon: Money, color: '#ef4444' },
@@ -390,27 +472,65 @@ const filteredData = computed(() => {
   return contracts.value.filter(i => (!filters.keyword || i.name.includes(filters.keyword)) && (!filters.status || i.status === filters.status))
 })
 
+const getCatData = (cat) => {
+  // 增加空值保护，防止 contracts.value 还是 null
+  const data = contracts.value || [] 
+  const count = data.filter(i => i.category === cat).length
+  return { 
+    count, 
+    percent: data.length ? ((count / data.length) * 100).toFixed(0) : 0 
+  }
+}
+
 // 图表渲染逻辑...
 let chartInst = null
+
 const updateChart = () => {
   const ctx = document.getElementById('categoryChart')
-  if (!ctx || chartInst) return
-  chartInst = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels: categories,
-      datasets: [{ data: categories.map(c => contracts.value.filter(i => i.category === c).length), backgroundColor: categories.map(c => categoryColorMap[c]), borderWidth: 0, cutout: '70%' }]
-    },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-  })
-}
-const getCatData = (cat) => {
-  const count = contracts.value.filter(i => i.category === cat).length
-  return { count, percent: contracts.value.length ? ((count / contracts.value.length) * 100).toFixed(0) : 0 }
-}
-const toggleField = (k) => { const i = visibleFields.value.indexOf(k); i > -1 ? visibleFields.value.splice(i, 1) : visibleFields.value.push(k) }
+  if (!ctx) return
 
-onMounted(() => updateChart())
+  // 计算当前最新的数据映射
+  const newData = categories.map(c => 
+    contracts.value.filter(i => i.category === c).length
+  )
+
+  // 如果实例不存在，则初始化
+  if (!chartInst) {
+    chartInst = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: categories,
+        datasets: [{ 
+          data: newData, 
+          backgroundColor: categories.map(c => categoryColorMap[c]), 
+          borderWidth: 0, 
+          cutout: '70%' 
+        }]
+      },
+      options: { 
+        responsive: true, 
+        maintainAspectRatio: false, 
+        plugins: { legend: { display: false } } 
+      }
+    })
+  } else {
+    // 【关键修复】如果实例已存在，直接更新数据并重绘
+    chartInst.data.datasets[0].data = newData
+    chartInst.update() // 必须调用这个方法，否则图表停留为 0
+  }
+}
+
+// 2. 监听后端数据异步返回后的变化
+watch(contracts, (newVal) => {
+  if (newVal && newVal.length > 0) {
+    updateChart()
+  }
+}, { deep: true })
+
+// 3. 挂载时执行一次（防止有时数据加载极快）
+onMounted(() => {
+  updateChart()
+})
 </script>
 
 <style scoped>
