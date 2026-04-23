@@ -52,4 +52,4 @@ async def update_setting(item: ConfigUpdate):
 @router.get("/logs")
 async def get_logs():
     """获取系统操作日志"""
-    return SYSTEM_LOGS[:20] # 返回最近20条
+    return SYSTEM_LOGS[:20] # 返回最近20条日志
