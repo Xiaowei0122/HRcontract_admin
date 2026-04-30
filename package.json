@@ -11,6 +11,7 @@
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
     "chart.js": "^4.5.1",
+    "crypto-js": "^4.2.0",
     "element-plus": "^2.13.7",
     "vue": "^3.5.32",
     "vue-chartjs": "^5.3.3",

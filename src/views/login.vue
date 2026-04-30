@@ -65,6 +65,7 @@ import { ref, reactive } from 'vue'
 import { User, Lock, Briefcase, View } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
+import CryptoJS from 'crypto-js'
 
 const router = useRouter()
 const activeTab = ref('admin')
@@ -90,6 +91,7 @@ const handleLogin = async () => {
   loading.value = true
   console.log("准备发起请求...")
   try {
+    const encryptedPassword = CryptoJS.SHA256(loginForm.password).toString();
     // 调用本地 FastAPI 后端
     const response = await fetch('http://localhost:9080/api/login', {
       method: 'POST',
@@ -98,7 +100,7 @@ const handleLogin = async () => {
       },
       body: JSON.stringify({
         username: loginForm.username,
-        password: loginForm.password
+        password: encryptedPassword
       })
     })
 
@@ -127,9 +129,12 @@ const handleLogin = async () => {
 const handleLogout = async () => {
   try {
     // 1. 同步通知后端
+    const currentToken = localStorage.getItem('token');
     const response = await fetch('http://localhost:9080/api/logout', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      // 建议：把当前的 token 发给后端，让后端知道是谁退出了
+      body: JSON.stringify({ token: currentToken })
     })
     
     const res = await response.json()
@@ -138,10 +143,10 @@ const handleLogout = async () => {
   } catch (error) {
     console.warn("后端退出接口调用失败，执行本地强制清理")
   } finally {
-    // 2. 无论后端是否成功，必须清理本地状态
-    localStorage.removeItem('userRole')
+    localStorage.removeItem('token') 
     localStorage.removeItem('isGuest')
-    localStorage.removeItem('token')
+    localStorage.removeItem('userRole')
+    localStorage.removeItem('admin_token')
     
     // 3. 提示并跳转
     ElMessage.success('已安全退出系统')
