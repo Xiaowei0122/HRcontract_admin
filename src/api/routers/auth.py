@@ -6,7 +6,6 @@ import secrets
 from typing import List
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
-from .contracts import MOCK_CONTRACTS  # 导入合同数据模拟
 
 # 配置数据库连接类型
 MONGO_DETAILS = "mongodb://admin:Hr85550780@192.168.1.111:32768/?authSource=admin"
@@ -19,7 +18,7 @@ router = APIRouter(
     prefix="/api",  #所有认证相关接口都以 /api 开头，保持与主文件一致
     tags=["认证管理"]
 )
-
+contract_collection = database.get_collection("contract")
 # --- 数据模型保持原状 ---
 class LoginData(BaseModel):
     username: str
@@ -86,10 +85,29 @@ async def logout(data: LogoutData):
 # --- 3. 访客模式接口 ---
 @router.get("/guest")
 async def guest_mode():
-    return {
-        "status": "success",
-        "userRole": "guest",
-        "isGuest": True,
-        "message": "访客模式：仅可预览数据，无法进行编辑或管理操作",
-        "previewData": MOCK_CONTRACTS[:2]  # 仅返回前2条数据作为预览
-    }
+    try:
+        # 1. 实时从 MongoDB 获取前 2 条未删除的合同数据
+        # 使用 find({"isDeleted": False}) 确保不显示已删除的数据
+        cursor = contract_collection.find({"isDeleted": False}).sort("createTime", -1)
+        preview_docs = await cursor.to_list(length=2)
+        
+        # 2. 格式化数据（处理 ObjectId 序列化问题）[cite: 1]
+        formatted_data = []
+        for doc in preview_docs:
+            doc["_id"] = str(doc["_id"]) # 将 MongoDB 对象转为前端可识别的字符串[cite: 1]
+            formatted_data.append(doc)
+
+        return {
+            "status": "success",
+            "userRole": "guest",
+            "isGuest": True,
+            "message": "访客模式：仅可预览数据，无法进行编辑或管理操作",
+            "previewData": formatted_data  # 现在这里是来自 NAS 数据库的真数据
+        }
+    except Exception as e:
+        # 增加错误处理，防止数据库连不上时整个接口挂掉
+        return {
+            "status": "error",
+            "message": f"无法获取预览数据: {str(e)}",
+            "previewData": []
+        }
