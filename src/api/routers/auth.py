@@ -1,14 +1,16 @@
+import os
 import site
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import secrets
+import hashlib
 from typing import List
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
 
 # 配置数据库连接类型
-MONGO_DETAILS = "mongodb://admin:Hr85550780@192.168.1.111:32768/?authSource=admin"
+MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@192.168.1.111:32768/?authSource=admin")
 client = AsyncIOMotorClient(MONGO_DETAILS)
 # 假设数据库名为 contract_db，用户集合名为 users
 database = client.HRcontract
@@ -19,6 +21,24 @@ router = APIRouter(
     tags=["认证管理"]
 )
 contract_collection = database.get_collection("contract")
+
+# 默认管理员密码的 SHA256 哈希（明文: admin）
+DEFAULT_ADMIN_PASSWORD_HASH = hashlib.sha256("admin".encode()).hexdigest()
+
+async def init_admin_user():
+    """检查数据库中是否存在管理员账号，不存在则创建默认管理员"""
+    admin_user = await user_collection.find_one({"role": "admin"})
+    if not admin_user:
+        await user_collection.insert_one({
+            "username": "admin",
+            "password": DEFAULT_ADMIN_PASSWORD_HASH,
+            "role": "admin",
+            "realName": "管理员",
+            "lastLogin": None,
+            "current_token": None,
+            "is_default_password": True
+        })
+        print("✅ 已创建默认管理员账号 admin/admin，请登录后修改密码")
 # --- 数据模型保持原状 ---
 class LoginData(BaseModel):
     username: str
@@ -63,7 +83,8 @@ async def login(data: LoginData):
         "realName": user.get("realName", "管理员"), # 从数据库获取真实姓名
         "isGuest": False,
         "token": dynamic_token, # 使用生成的动态 Token
-        "lastLogin": current_time
+        "lastLogin": current_time,
+        "isDefaultPassword": user.get("is_default_password", False)
     }
 
 # --- 2. 退出登录接口 ---
@@ -82,7 +103,28 @@ async def logout(data: LogoutData):
 
     return {"status": "success", "message": "已从服务器安全登出"}
 
-# --- 3. 访客模式接口 ---
+# --- 3. 修改密码接口 ---
+class ChangePasswordData(BaseModel):
+    username: str
+    oldPassword: str
+    newPassword: str
+
+@router.post("/change-password")
+async def change_password(data: ChangePasswordData):
+    user = await user_collection.find_one({
+        "username": data.username.strip(),
+        "password": data.oldPassword.strip()
+    })
+    if not user:
+        raise HTTPException(status_code=401, detail="原密码错误")
+
+    await user_collection.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"password": data.newPassword.strip(), "is_default_password": False}}
+    )
+    return {"status": "success", "message": "密码修改成功"}
+
+# --- 4. 访客模式接口 ---
 @router.get("/guest")
 async def guest_mode():
     try:

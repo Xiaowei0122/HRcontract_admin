@@ -17,7 +17,7 @@ router = APIRouter(
 )
 
 # 1. 数据库与文件存储配置
-MONGO_DETAILS = "mongodb://admin:Hr85550780@192.168.1.111:32768/?authSource=admin"
+MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@192.168.1.111:32768/?authSource=admin")
 client = AsyncIOMotorClient(MONGO_DETAILS)
 database = client.HRcontract
 contract_collection = database.get_collection("contract")

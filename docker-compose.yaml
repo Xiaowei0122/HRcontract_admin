@@ -1,0 +1,27 @@
+services:
+  mongo:
+    image: mongo:latest
+    container_name: mongo-1
+    restart: always
+    ports:
+      - "32768:27017"
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: Hr85550780
+      MONGO_INITDB_DATABASE: admin
+
+  web:
+    build: .
+    container_name: hrcontract-admin
+    restart: always
+    ports:
+      - "80:80"
+    environment:
+      MONGO_URL: "mongodb://admin:Hr85550780@mongo:27017/?authSource=admin"
+    depends_on:
+      - mongo
+
+volumes:
+  mongo-data:

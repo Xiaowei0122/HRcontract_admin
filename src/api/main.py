@@ -5,6 +5,10 @@ from routers import auth , contracts, settings
 
 app = FastAPI(title="鸿瑞办公后端系统")
 
+@app.on_event("startup")
+async def startup_event():
+    await auth.init_admin_user()
+
 # --- 全局跨域配置 (保持原状) ---
 app.add_middleware(
     CORSMiddleware,

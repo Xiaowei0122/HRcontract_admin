@@ -57,6 +57,25 @@
     <footer class="login-footer">
       <p>© 2026 鸿瑞办公 · 数字化工程部</p>
     </footer>
+
+    <!-- 修改默认密码对话框 -->
+    <el-dialog v-model="showChangePwd" title="安全提醒：请修改默认密码" width="420px" :close-on-click-modal="false" :close-on-press-escape="false" :show-close="false">
+      <el-alert type="warning" :closable="false" style="margin-bottom: 16px;">
+        您正在使用默认密码登录，为保障系统安全，请立即修改密码。
+      </el-alert>
+      <el-form :model="changePwdForm" label-position="top">
+        <el-form-item label="新密码">
+          <el-input v-model="changePwdForm.newPassword" type="password" placeholder="请输入新密码" show-password />
+        </el-form-item>
+        <el-form-item label="确认新密码">
+          <el-input v-model="changePwdForm.confirmPassword" type="password" placeholder="请再次输入新密码" show-password />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="skipChangePwd">稍后修改</el-button>
+        <el-button type="primary" @click="submitChangePwd" :loading="changePwdLoading">确认修改</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -71,6 +90,16 @@ const router = useRouter()
 const activeTab = ref('admin')
 const loading = ref(false)
 const rememberMe = ref(false)
+
+// 修改密码相关
+const showChangePwd = ref(false)
+const changePwdLoading = ref(false)
+const changePwdUsername = ref('')
+const changePwdOldHash = ref('')
+const changePwdForm = reactive({
+  newPassword: '',
+  confirmPassword: ''
+})
 
 const loginForm = reactive({
   username: '',
@@ -112,8 +141,16 @@ const handleLogin = async () => {
       localStorage.setItem('isGuest', String(res.isGuest))
       localStorage.setItem('token', res.token) // 存入 token 方便后续鉴权
       
-      ElMessage.success(res.userRole === 'admin' ? '欢迎回来，管理员' : '登录成功')
-      router.push('/')
+      // 检测是否为默认密码，弹出修改提醒
+      if (res.isDefaultPassword) {
+        changePwdUsername.value = loginForm.username
+        changePwdOldHash.value = encryptedPassword
+        showChangePwd.value = true
+        ElMessage.warning('您正在使用默认密码，请尽快修改！')
+      } else {
+        ElMessage.success(res.userRole === 'admin' ? '欢迎回来，管理员' : '登录成功')
+        router.push('/')
+      }
     } else {
       // 登录失败：显示后端返回的错误信息
       ElMessage.error(res.detail || '账号或密码错误')
@@ -125,6 +162,53 @@ const handleLogin = async () => {
     loading.value = false
   }
 }
+
+// 提交修改密码
+const submitChangePwd = async () => {
+  if (!changePwdForm.newPassword || !changePwdForm.confirmPassword) {
+    return ElMessage.warning('请填写新密码')
+  }
+  if (changePwdForm.newPassword !== changePwdForm.confirmPassword) {
+    return ElMessage.error('两次密码输入不一致')
+  }
+  if (changePwdForm.newPassword.length < 6) {
+    return ElMessage.warning('密码长度不能少于6位')
+  }
+
+  changePwdLoading.value = true
+  try {
+    const newHash = CryptoJS.SHA256(changePwdForm.newPassword).toString()
+    const response = await fetch('/api/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: changePwdUsername.value,
+        oldPassword: changePwdOldHash.value,
+        newPassword: newHash
+      })
+    })
+    const res = await response.json()
+    if (response.ok) {
+      ElMessage.success('密码修改成功，欢迎使用系统')
+      showChangePwd.value = false
+      router.push('/')
+    } else {
+      ElMessage.error(res.detail || '密码修改失败')
+    }
+  } catch (error) {
+    ElMessage.error('无法连接服务器')
+  } finally {
+    changePwdLoading.value = false
+  }
+}
+
+// 跳过修改密码
+const skipChangePwd = () => {
+  showChangePwd.value = false
+  ElMessage.info('请尽快在系统设置中修改默认密码')
+  router.push('/')
+}
+
 //账户退出逻辑
 const handleLogout = async () => {
   try {
