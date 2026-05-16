@@ -4,7 +4,7 @@
     <div class="brand">
       <el-icon class="logo-icon"><Briefcase /></el-icon>
       <div class="brand-text">
-        <span class="title">智链合同</span>
+        <span class="title">鸿瑞智链合同</span>
         <span class="subtitle">数字化管理系统</span>
       </div>
       
@@ -372,9 +372,9 @@ const handleLogout = () => {
 }
 
 // --- 基础数据 (保持原有配置) ---
-const categories = ["计算机设备", "办公用品", "电子产品", "福利产品"]
+const categories = ["计算机设备", "办公用品", "电子产品", "福利产品", "劳保用品", "办公耗材" , "网络安防" ,"维修维护服务"]
 const customerTypes = ["高校", "党政机关", "国企", "央企", "事业单位", "民营企业"]
-const categoryColorMap = { "计算机设备": "#3b82f6", "办公用品": "#10b981", "电子产品": "#f59e0b", "福利产品": "#ef4444" }
+const categoryColorMap =  {"计算机设备": "#3b82f6","办公用品": "#10b981","电子产品": "#f59e0b", "福利产品": "#ef4444",  "劳保用品": "#f97316",  "办公耗材": "#8b5cf6",  "网络安防": "#06b6d4",  "维修维护服务": "#ec4899"}
 const statusList = ["草稿", "待签署", "已签署", "已终止"]
 const statusTagMap = { '已签署': 'success', '待签署': 'warning', '草稿': 'info', '已终止': 'danger' }
 
@@ -391,6 +391,7 @@ const fetchTableData = async () => {
   
   try {
     // 这里的路径对应你在 contracts.py 中定义的路由
+    //api地址测试环境修改为localhost:9080，确保端口和路径正确，生产环境请替换为后端服务地址，并确保 docker-compose.yml 中的服务名称和端口映射正确
     const response = await fetch(`http://localhost:9080/api/contracts?role=${role}`)
     if (response.ok) {
       const data = await response.json()
@@ -662,7 +663,7 @@ const statistics = computed(() => [
   { title: '待处理', value: contracts.value.filter(c => c.status !== '已签署').length, unit: '份', icon: Timer, color: '#f59e0b' }
 ])
 
-const visibleFields = ref(['contractNo', 'name', 'customer', 'amount', 'status', 'signDate'])
+const visibleFields = ref(['contractNo', 'name','contractType','customer','customerType', 'amount', 'status', 'signDate'])
 const allFields = [
   { key: 'name', label: '合同名称' },
   { key: 'contractNo', label: '合同编号' },

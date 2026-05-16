@@ -19,9 +19,11 @@ services:
     ports:
       - "80:80"
     environment:
-      MONGO_URL: "mongodb://admin:Hr85550780@mongo:27017/?authSource=admin"
+      MONGO_URL: "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin"
     depends_on:
-      - mongo
+      - mongo-1
+    volumes:
+      - /volume1/contracts:/contracts
 
 volumes:
   mongo-data:
