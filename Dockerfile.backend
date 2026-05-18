@@ -1,0 +1,31 @@
+FROM python:3.11-slim
+
+# 安装后端必要的系统依赖（OpenCV / PaddleOCR 必需的底层动态库）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 将包含后端的整个项目代码全量复制到容器中
+COPY . .
+
+# 💡 切换到后端 Python 代码依赖所在的实际工作目录
+WORKDIR /app/src/api
+
+# 转换并清洗 requirements.txt 编码（处理原文件的 UTF-16LE 兼容问题）
+COPY src/api/requirements.txt ./requirements_raw.txt
+RUN python -c "open('requirements.txt','w').write(open('requirements_raw.txt','rb').read().decode('utf-16'))" \
+    && rm requirements_raw.txt \
+    && sed -i 's/paddlepaddle==3.3.1/paddlepaddle==3.2.2/' requirements.txt \
+    && sed -i '/^PyQt5/d; /^PyQt6/d;' requirements.txt \
+    && pip install --no-cache-dir -r requirements.txt
+
+EXPOSE 9080
+
+# 💡 独立容器规范启动，直接暴露 9080 端口给前端 Nginx 访问
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9080"]

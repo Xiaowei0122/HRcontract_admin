@@ -1,4 +1,7 @@
+version: '3.8'
+
 services:
+  # 1. 独立的数据库容器
   mongo-1:
     image: mongo:latest
     container_name: mongo-1
@@ -11,19 +14,42 @@ services:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: Hr85550780
       MONGO_INITDB_DATABASE: admin
+    networks:
+      - hr_network
 
-  web:
-    build: .
-    container_name: hrcontract-admin
+  # 2. 独立的后端容器 (FastAPI)
+  hr-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend   # 💡 显式指定后端 Dockerfile 脚本
+    container_name: hrcontract-backend
     restart: always
     ports:
-      - "9080:80"
+      - "9080:9080"                    # 暴露群晖的 9080 端口供直接调测后端
     environment:
+      # 💡 容器内网无缝互连
       MONGO_URL: "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin"
     depends_on:
       - mongo-1
     volumes:
       - /volume1/contracts:/contracts
+    networks:
+      - hr_network
+
+  # 3. 独立的前端容器 (Vue + Nginx)
+  hr-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend  # 💡 显式指定前端 Dockerfile 脚本
+    container_name: hrcontract-frontend
+    restart: always
+    ports:
+      - "3980:80"                      # 💡 用户在浏览器里直接访问这个 3980 端口
+    depends_on:
+      - hr-backend
+    networks:
+      - hr_network
+
 networks:
   hr_network:
     driver: bridge
