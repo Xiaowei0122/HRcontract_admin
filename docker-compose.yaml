@@ -1,5 +1,5 @@
 services:
-  mongo:
+  mongo-1:
     image: mongo:latest
     container_name: mongo-1
     restart: always
@@ -17,13 +17,16 @@ services:
     container_name: hrcontract-admin
     restart: always
     ports:
-      - "80:80"
+      - "9080:80"
     environment:
       MONGO_URL: "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin"
     depends_on:
       - mongo-1
     volumes:
       - /volume1/contracts:/contracts
+networks:
+  hr_network:
+    driver: bridge
 
 volumes:
   mongo-data:
