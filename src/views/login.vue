@@ -13,12 +13,12 @@
       </div>
 
       <el-tabs v-model="activeTab" stretch>
-        <el-tab-pane label="管理员登录" name="admin">
+        <el-tab-pane label="用户登录" name="admin">
           <el-form :model="loginForm" :rules="rules" ref="loginRef" label-position="top" class="login-form">
             <el-form-item label="账号" prop="username">
               <el-input 
                 v-model="loginForm.username" 
-                placeholder="请输入管理员账号" 
+                placeholder="请输入用户账号" 
                 :prefix-icon="User"
               />
             </el-form-item>
@@ -55,7 +55,7 @@
     </el-card>
 
     <footer class="login-footer">
-      <p>© 2026 鸿瑞办公 · 数字化工程部</p>
+      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.2.2-release</p>
     </footer>
 
     <!-- 修改默认密码对话框 -->

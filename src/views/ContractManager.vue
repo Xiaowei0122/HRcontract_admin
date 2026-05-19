@@ -485,23 +485,21 @@ const handleCurrentChange = (page) => {
 }
 
 const handleSave = async () => {
-  console.log("1. 进入保存函数");
+  console.log("1. 启用保存，准备提交数据");
   try {
     // 1. 开启加载状态
     loading.value = true;
     
     // 2. 创建 FormData 对象
     const formData = new FormData();
-    console.log("2. 准备构建数据", form);
+    //console.log("2. 准备构建数据", form);
     
-    // 3. 按照后端接口定义的参数逐一添加
+    // 3. 按照后端接口定义的参数添加
     // 注意：只传业务输入字段，系统字段（ID、时间）交给后端生成
     formData.append('name', form.name);
     formData.append('contractNo', form.contractNo);
     formData.append('category', form.category || '');
-    // 核心改动：确保 amount 传给后端的是数字或 0，避免字符串导致的 422 错误
     formData.append('amount', parseFloat(form.amount) || 0);
-    
     formData.append('status', form.status || '草稿');
     formData.append('customer', form.customer || '');
     formData.append('customerType', form.customerType || '');
@@ -622,7 +620,7 @@ const sysConfig = reactive({ guest_data_limit: 2 })
 const currentPage = ref(1)
 const pageSize = ref(10)
 
-// 关键：获取当前角色并保持响应式
+// 获取当前角色并保持响应式
 
 // 定义权限快捷判断
 
@@ -663,10 +661,10 @@ const statistics = computed(() => [
   { title: '待处理', value: contracts.value.filter(c => c.status !== '已签署').length, unit: '份', icon: Timer, color: '#f59e0b' }
 ])
 
-const visibleFields = ref(['contractNo', 'name','contractType','customer','customerType', 'amount', 'status', 'signDate'])
+const visibleFields = ref(['contractId', 'name','contractType','customer','customerType', 'amount', 'status', 'signDate'])
 const allFields = [
   { key: 'name', label: '合同名称' },
-  { key: 'contractNo', label: '合同编号' },
+  { key: 'contractId', label: '合同ID '},
   { key: 'contractType', label: '合同类型' },
   { key: 'category', label: '产品类别' },
   { key: 'customerType', label: '客户类别' },
@@ -680,7 +678,7 @@ const allFields = [
   { key: 'remark', label: '备注' },
   { key: 'createTime', label: '创建时间' },
   { key: 'updateTime', label: '更新时间' },
-  { key: 'contractId', label: '合同ID '},
+  { key: 'contractNo', label: '合同编号' },
   { key: 'operator', label: '操作人'}
 ]
 const activeColumns = computed(() => allFields.filter(f => visibleFields.value.includes(f.key)))
@@ -935,8 +933,8 @@ onMounted(() => {
 }
 
 .drag-uploader :deep(.el-upload-dragger) {
-  width: 100%; /* 强制拖拽区域撑满父容器 */
-  height: 160px; /* 如果觉得太高可以适当调小，默认是 180px */
+  width: 100%; 
+  height: 160px; 
   display: flex;
   flex-direction: column;
   justify-content: center;
