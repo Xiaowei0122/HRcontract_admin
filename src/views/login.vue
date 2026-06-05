@@ -140,6 +140,7 @@ const handleLogin = async () => {
       localStorage.setItem('userRole', res.userRole)
       localStorage.setItem('isGuest', String(res.isGuest))
       localStorage.setItem('token', res.token) // 存入 token 方便后续鉴权
+      localStorage.setItem('username', loginForm.username) // 存入用户名用于退出
       
       // 检测是否为默认密码，弹出修改提醒
       if (res.isDefaultPassword) {
@@ -178,7 +179,7 @@ const submitChangePwd = async () => {
   changePwdLoading.value = true
   try {
     const newHash = CryptoJS.SHA256(changePwdForm.newPassword).toString()
-    const response = await fetch('/api/change-password', {
+    const response = await fetch('http://localhost:9080/api/change-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -214,11 +215,11 @@ const handleLogout = async () => {
   try {
     // 1. 同步通知后端
     const currentToken = localStorage.getItem('token');
+    const currentUsername = localStorage.getItem('username');
     const response = await fetch('http://localhost:9080/api/logout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // 建议：把当前的 token 发给后端，让后端知道是谁退出了
-      body: JSON.stringify({ token: currentToken })
+      body: JSON.stringify({ token: currentToken, username: currentUsername })
     })
     
     const res = await response.json()
@@ -230,6 +231,7 @@ const handleLogout = async () => {
     localStorage.removeItem('token') 
     localStorage.removeItem('isGuest')
     localStorage.removeItem('userRole')
+    localStorage.removeItem('username')
     localStorage.removeItem('admin_token')
     
     // 3. 提示并跳转

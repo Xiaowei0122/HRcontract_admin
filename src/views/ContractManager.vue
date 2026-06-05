@@ -359,10 +359,24 @@ const handleLogout = () => {
     cancelButtonText: '取消',
     type: 'warning',
     buttonSize: 'default'
-  }).then(() => {
+  }).then(async () => {
+    try {
+      const currentToken = localStorage.getItem('token')
+      const currentUsername = localStorage.getItem('username')
+      await fetch('http://localhost:9080/api/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: currentToken, username: currentUsername })
+      })
+    } catch (e) {
+      console.warn("后端退出接口调用失败，执行本地强制清理")
+    }
     // 清除本地存储的状态
     localStorage.removeItem('userRole')
     localStorage.removeItem('isGuest')
+    localStorage.removeItem('token')
+    localStorage.removeItem('username')
+    localStorage.removeItem('admin_token')
     
     ElMessage.success('已安全退出')
     router.push('/login')

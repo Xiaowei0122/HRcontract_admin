@@ -10,8 +10,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
 
 # 配置数据库连接类型
-#测试
-MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@192.168.1.111:32771/?authSource=admin")
+#测试（本地Docker）
+MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@localhost:32768/?authSource=admin")
 #生产
 #MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin")
 

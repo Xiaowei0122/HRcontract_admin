@@ -19,7 +19,7 @@ router = APIRouter(
 # 1. 数据库与文件存储配置
 #本地测试修改@地址为 192.168.1.111:32771, 生产环境请替换为 mongo-1:27017，并确保 docker-compose.yml 中的服务名称和端口映射正确
 # 测试
-MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@192.168.1.111:32771/?authSource=admin")
+MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@localhost:32768/?authSource=admin")
 
 # 生产
 #MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin")
@@ -32,7 +32,7 @@ contract_collection = database.get_collection("contract")
 # 测试Path(r"\\192.168.1.111\HR_NAS\contracts")
 # 生产环境请替换为/contracts，然后在docker-compose.yml中将/contracts映射到NASdocker容器的挂载目录
 
-UPLOAD_DIR = Path(os.getenv("CONTRACT_UPLOAD_DIR", r"/contracts"))
+UPLOAD_DIR = Path(os.getenv("CONTRACT_UPLOAD_DIR", str(Path(__file__).resolve().parent.parent / "contracts")))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # 2. 数据模型 (根据图 2 字段补全)
