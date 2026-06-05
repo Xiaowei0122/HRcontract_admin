@@ -17,8 +17,13 @@ router = APIRouter(
 )
 
 # 1. 数据库与文件存储配置
-#本地测试修改@地址为 192.168.1.111:32768, 生产环境请替换为 mongo-1:27017，并确保 docker-compose.yml 中的服务名称和端口映射正确
-MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin")
+#本地测试修改@地址为 192.168.1.111:32771, 生产环境请替换为 mongo-1:27017，并确保 docker-compose.yml 中的服务名称和端口映射正确
+# 测试
+MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@192.168.1.111:32771/?authSource=admin")
+
+# 生产
+#MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin")
+
 client = AsyncIOMotorClient(MONGO_DETAILS)
 database = client.HRcontract
 contract_collection = database.get_collection("contract")
@@ -63,15 +68,45 @@ def serialize_doc(doc):
 
 # 1. 获取合同列表 (支持增删改查中的“查”)
 @router.get("/contracts")
-async def get_contracts(role: Optional[str] = Query(None)):
-    # 只查询未删除的合同
-    cursor = contract_collection.find({"isDeleted": False}).sort("createTime", -1)
-    contracts = await cursor.to_list(length=100)
+async def get_contracts(
+    role: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),   # 💡 默认第 1 页
+    size: int = Query(10, ge=1)   # 💡 默认只给 10 条,前端可以传参 例如20、50、100 来覆盖
+):
+    # 统一的基础查询：只查询未删除的合同
+    query_filter = {"isDeleted": False}
     
-    data = [serialize_doc(c) for c in contracts]
+    # 【权限控制分支 1】：如果是 admin 管理员
     if role == "admin":
-        return data
-    return data[:2]
+        # 1. 动态计算当前页需要跳过多少条
+        skip_count = (page - 1) * size
+        
+        # 2. 去数据库计算符合条件的总合同数（比如 7 条、100 条、1 万条）
+        total_count = await contract_collection.count_documents(query_filter)
+        
+        # 3. 核心限流：利用 skip 和 limit，让 MongoDB 每次最多只交出 size 条数据（默认10条）
+        cursor = contract_collection.find(query_filter).sort("createTime", -1).skip(skip_count).limit(size)
+        contracts = await cursor.to_list(length=size)
+        
+        data = [serialize_doc(c) for c in contracts]
+        
+        # 4. 完美打包：把当前页需要的这几条，连同总条数一起丢给前端
+        return {
+            "list": data,
+            "total": total_count
+        }
+    
+    # 【权限控制分支 2】：如果不是 admin（如访客 guest）
+    else:
+        # 依然保持你原本的死锁逻辑：总数只有 2 条，数据也只查 2 条
+        cursor = contract_collection.find(query_filter).sort("createTime", -1)
+        contracts = await cursor.to_list(length=2)
+        
+        data = [serialize_doc(c) for c in contracts]
+        return {
+            "list": data,
+            "total": 2  # 强制让前端分页器知道访客只有 2 条，无法翻页
+        }
 
 # 2. 合同上传与文件保存 (支持“增”)
 @router.post("/contracts/upload")

@@ -75,7 +75,7 @@
           <div class="canvas-wrapper">
             <canvas id="categoryChart"></canvas>
             <div class="chart-inner-text">
-              <p class="total-val">{{ contracts.length }}</p>
+              <p class="total-val">{{ allContractsData.length }}</p>
               <p class="total-lab">总合同数</p>
             </div>
           </div>
@@ -117,7 +117,7 @@
         </el-card>
 
       <el-card shadow="never" class="table-card">
-        <el-table ref="tableRef" :data="displayedTableData" stripe>
+        <el-table ref="tableRef" :data="displayedTableData" v-loading="loading" stripe>
           <el-table-column type="selection" width="50" />
           <el-table-column v-for="col in activeColumns" :key="col.key" :prop="col.key" :label="col.label" show-overflow-tooltip>
             <template #default="{ row }">
@@ -174,8 +174,6 @@
             </div>
             </template>
           </el-table-column>
-        </el-table>
-        <el-table :data="displayedTableData" style="width: 100%; margin-top: 15px">
         </el-table>
           <div class="pagination-footer" style="margin-top: 20px; display: flex; justify-content: flex-end;">
             <el-pagination
@@ -381,27 +379,47 @@ const statusTagMap = { '已签署': 'success', '待签署': 'warning', '草稿':
 
 // --- 请求主要数据与状态 ---
 const contracts = ref([])
+const allContractsData = ref([]) // 💡 新增：专门用来喂给图表和顶部统计的全量数据
 const loading = ref(false)
 const selectedFile = ref(null)
 const fileList = ref([])
 // 获取合同数据的核心逻辑
 const fetchTableData = async () => {
   loading.value = true
-  const role = localStorage.getItem('userRole') || 'visitor' // 同步当前的登录角色
+  const role = localStorage.getItem('userRole') || 'visitor'
   
   try {
-    // 这里的路径对应你在 contracts.py 中定义的路由
-    //api地址测试环境修改为localhost:9080，确保端口和路径正确，生产环境请替换为后端服务地址，并确保 docker-compose.yml 中的服务名称和端口映射正确
-    const response = await fetch(`http://localhost:9080/api/contracts?role=${role}`)
-    if (response.ok) {
-      const data = await response.json()
-      contracts.value = data // 100% 同步后端数据
-      console.log("--- 合同数据同步成功 ---")
-    } else {
-      console.error("后端拒绝了数据请求")
+    // 💡 使用 Promise.all 同时发出两个请求，速度最快
+    const [pageRes, allRes] = await Promise.all([
+      // 请求 1：带分页参数，拿当前页的切片数据
+      fetch(`http://localhost:9080/api/contracts?role=${role}&page=${currentPage.value}&size=${pageSize.value}`),
+      // 请求 2：不带分页参数，捞全盘不切片的数据（供大盘使用）
+      fetch(`http://localhost:9080/api/contracts?role=${role}`)
+    ])
+
+    if (pageRes.ok && allRes.ok) {
+      const pageData = await pageRes.json()
+      const allData = await allRes.json()
+      
+      // 1. 给表格赋值（解析后端的打包结构）
+      if (pageData && typeof pageData === 'object' && 'list' in pageData) {
+        contracts.value = pageData.list     
+        totalCount.value = pageData.total   // 撑开底部分页器
+      } else {
+        contracts.value = pageData
+        totalCount.value = pageData.length
+      }
+
+      // 2. 给大盘全量变量赋值
+      if (allData && typeof allData === 'object' && 'list' in allData) {
+        allContractsData.value = allData.list
+      } else {
+        allContractsData.value = allData
+      }
+      console.log("--- 切片数据与大盘总数同步成功 ---")
     }
   } catch (error) {
-    console.error("API 连接失败，请检查后端是否启动")
+    console.error("API 联动失败:", error)
   } finally {
     loading.value = false
   }
@@ -477,11 +495,13 @@ const isSubmitting = ref(false)
 
 const handleSizeChange = (size) => {
   pageSize.value = size
-  currentPage.value = 1
+  currentPage.value = 1   // 切换每页条数时，自动重置回第一页
+  fetchTableData()        // 💡 关键：条数变了，立刻命令后端重新查询
 }
 
 const handleCurrentChange = (page) => {
   currentPage.value = page
+  fetchTableData()        // 💡 关键：页码变了，立刻让后端去捞对应页的数据
 }
 
 const handleSave = async () => {
@@ -615,39 +635,26 @@ const handleDownload = async (row) => {
 
 // 翻页组件
 // --- 1. 基础状态 ---
-const allContracts = ref([]) 
+// --- 翻页组件所需的核心状态 ---
 const sysConfig = reactive({ guest_data_limit: 2 }) 
 const currentPage = ref(1)
 const pageSize = ref(10)
+const totalCount = ref(0) // 💡 变成响应式变量，由第二步的 fetchTableData 统一赋值
 
-// 获取当前角色并保持响应式
-
-// 定义权限快捷判断
-
-// --- 2. 独立的计算逻辑 ---
-
-// 计算属性：根据角色过滤“准许查看”的数据全集
-const accessibleData = computed(() => {
-  const list = [...(contracts.value || [])] 
-  console.log("原始数据总量:", list.length)
-  
-  if (userRole.value === 'guest') {
-    const limit = sysConfig.guest_data_limit || 2
-    return list.slice(0, limit)
-  }
-  return list
-})
-
-// 计算属性，让翻页逻辑基于“搜索过滤后”的数据
+// --- 💡 修正后的表格渲染计算属性 ---
+// 现在的 contracts.value 已经是后端切好片吐出来的 10 条了，不需要再用 .slice() 切片
+// 我们只需要在这里保留你原本的模糊搜索逻辑，确保搜索框（名称/编号/状态）完美好使！
 const displayedTableData = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  const end = start + pageSize.value
-  // 关键：这里改用 filteredData，这样搜索结果多于5条时也能翻页
-  return filteredData.value.slice(start, end) 
+  const data = contracts.value || []
+  return data.filter(i => 
+    (!filters.keyword || 
+      (i.name && i.name.includes(filters.keyword)) || 
+      (i.contractNo && i.contractNo.includes(filters.keyword)) || 
+      (i.customer && i.customer.includes(filters.keyword))
+    ) && 
+    (!filters.status || i.status === filters.status)
+  )
 })
-
-// 同时修正总条数统计，使其随搜索结果变化
-const totalCount = computed(() => filteredData.value.length)
 
 // --- 统计/筛选/显示逻辑 ---
 const toggleField = (k) => { 
@@ -655,10 +662,10 @@ const toggleField = (k) => {
   i > -1 ? visibleFields.value.splice(i, 1) : visibleFields.value.push(k); 
 }
 const statistics = computed(() => [
-  { title: '合同总量', value: contracts.value.length, unit: '份', icon: Files, color: '#3b82f6' },
-  { title: '累计总金额', value: contracts.value.reduce((s, c) => s + c.amount, 0).toFixed(1), unit: '万', icon: Money, color: '#ef4444' },
-  { title: '已签署', value: contracts.value.filter(c => c.status === '已签署').length, unit: '份', icon: Check, color: '#10b981' },
-  { title: '待处理', value: contracts.value.filter(c => c.status !== '已签署').length, unit: '份', icon: Timer, color: '#f59e0b' }
+  { title: '合同总量', value: allContractsData.value.length, unit: '份', icon: Files, color: '#3b82f6' },
+  { title: '累计总金额', value: allContractsData.value.reduce((s, c) => s + c.amount, 0).toFixed(1), unit: '万', icon: Money, color: '#ef4444' },
+  { title: '已签署', value: allContractsData.value.filter(c => c.status === '已签署').length, unit: '份', icon: Check, color: '#10b981' },
+  { title: '待处理', value: allContractsData.value.filter(c => c.status !== '已签署').length, unit: '份', icon: Timer, color: '#f59e0b' }
 ])
 
 const visibleFields = ref(['contractId', 'name','contractType','customer','customerType', 'amount', 'status', 'signDate'])
@@ -688,8 +695,7 @@ const filteredData = computed(() => {
 })
 
 const getCatData = (cat) => {
-  // 增加空值保护，防止 contracts.value 还是 null
-  const data = contracts.value || [] 
+  const data = allContractsData.value || [] 
   const count = data.filter(i => i.category === cat).length
   return { 
     count, 
@@ -697,19 +703,18 @@ const getCatData = (cat) => {
   }
 }
 
-// 图表渲染逻辑...
+// 图表渲染逻辑
 let chartInst = null
 
 const updateChart = () => {
   const ctx = document.getElementById('categoryChart')
   if (!ctx) return
 
-  // 计算当前最新的数据映射
+  //基于全量数据进行统计，保证翻页时数据源稳定
   const newData = categories.map(c => 
-    contracts.value.filter(i => i.category === c).length
+    allContractsData.value.filter(i => i.category === c).length
   )
 
-  // 如果实例不存在，则初始化
   if (!chartInst) {
     chartInst = new Chart(ctx, {
       type: 'doughnut',
@@ -725,18 +730,27 @@ const updateChart = () => {
       options: { 
         responsive: true, 
         maintainAspectRatio: false, 
+        animation: {
+          duration: 400 // 缩短初次加载动画时间，体验更丝滑
+        },
         plugins: { legend: { display: false } } 
       }
     })
   } else {
-    // 【关键修复】如果实例已存在，直接更新数据并重绘
+    // 💡 关键机制：先转为字符串比对新旧数据，若完全一致则直接拦截，绝不触发 Chart.js 的重绘动画！
+    const oldData = chartInst.data.datasets[0].data
+    if (JSON.stringify(oldData) === JSON.stringify(newData)) {
+      return // 数据没变，直接抱拳告退，圆环纹丝不动
+    }
+    
+    // 如果真的增删了合同，数据变了，才进行静默更新
     chartInst.data.datasets[0].data = newData
-    chartInst.update() // 必须调用这个方法，否则图表停留为 0
+    chartInst.update() 
   }
 }
 
-// 2. 监听后端数据异步返回后的变化
-watch(contracts, (newVal) => {
+// 💡 核心修正：侦听器改为只死盯全量大盘数据 allContractsData
+watch(allContractsData, (newVal) => {
   if (newVal && newVal.length > 0) {
     updateChart()
   }
@@ -744,23 +758,24 @@ watch(contracts, (newVal) => {
 
 const initPageData = async () => {
   try {
-    // 同时获取配置和合同数据
-    const [configRes, dataRes] = await Promise.all([
-      fetch('http://localhost:9080/api/settings/').then(r => r.json()),
-      fetch('http://localhost:9080/api/contracts/').then(r => r.json())
-    ])
+    // 1. 获取系统参数配置
+    const response = await fetch('http://localhost:9080/api/settings/')
+    if (response.ok) {
+      const configRes = await response.json()
+      Object.assign(sysConfig, configRes)
+      console.log("翻页系统配置加载完成")
+    }
     
-    // 赋值给响应式变量
-    Object.assign(sysConfig, configRes)
-    allContracts.value = dataRes
-    console.log("翻页系统数据加载完成")
+    // 2. 💡 关键：配置加载完后，立刻让真正的后端分页去捞第一页的合同数据！
+    await fetchTableData()
+    console.log("首屏第一页合同数据加载完成")
+
   } catch (err) {
-    console.error("加载失败:", err)
+    console.error("加载配置或首屏数据失败:", err)
   }
 }
 // 3. 挂载时执行一次（防止有时数据加载极快）
 onMounted(() => {
-  updateChart()
   initPageData()
   
 })
