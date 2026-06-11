@@ -442,18 +442,24 @@ const fetchTableData = async () => {
   const role = localStorage.getItem('userRole') || 'visitor'
   
   try {
-    // 💡 1. 组装筛选参数，发送给后端进行跨页的全局模糊搜索
-    let url = `http://localhost:9080/api/contracts?role=${role}&page=${currentPage.value}&size=${pageSize.value}`
-    if (filters.keyword) url += `&keyword=${encodeURIComponent(filters.keyword)}`
-    if (filters.status) url += `&status=${encodeURIComponent(filters.status)}`
+    // 构建筛选参数
+    const params = new URLSearchParams();
+    params.append('role', role);
+    params.append('page', currentPage.value);
+    params.append('size', pageSize.value);
+    if (filters.keyword) params.append('keyword', filters.keyword);
+    if (filters.category) params.append('category', filters.category);
+    if (filters.contractType) params.append('contractType', filters.contractType);
+    if (filters.customerType) params.append('customerType', filters.customerType);
+    if (filters.status) params.append('status', filters.status);
+    if (filters.minAmount !== null && filters.minAmount !== undefined) params.append('minAmount', filters.minAmount);
+    if (filters.maxAmount !== null && filters.maxAmount !== undefined) params.append('maxAmount', filters.maxAmount);
 
-    // 💡 2. 大盘全量统计依然保持全盘，但也要带上搜索条件，让顶部的图表跟着筛选框动态变化！
+    // 全量统计（不带分页和筛选，用于图表）
     let allUrl = `http://localhost:9080/api/contracts?role=${role}`
-    if (filters.keyword) allUrl += `&keyword=${encodeURIComponent(filters.keyword)}`
-    if (filters.status) allUrl += `&status=${encodeURIComponent(filters.status)}`
 
     const [pageRes, allRes] = await Promise.all([
-      fetch(url),
+      fetch(`http://localhost:9080/api/contracts?${params.toString()}`),
       fetch(allUrl)
     ])
 
@@ -718,18 +724,15 @@ const handleDelete = async (row) => {
 
 // 单独下载附件
 const handleDownload = async (row) => {
-  // 💡 核心修复：优先取新主键 contractId，如果没有（说明是历史老数据），则降级取 contractNo 或 数据库 _id
-  const fileKey = row.contractId || row.contractNo || row._id;
-  
-  if (!fileKey) {
-    ElMessage.error('无法获取该合同的有效编号，下载失败');
+  // 使用数据库中存储的 fileUrl 路径直接下载（fileUrl 格式为 /api/contracts/file/{实际文件名}）
+  if (!row.fileUrl) {
+    ElMessage.error('该合同没有关联的电子文件');
     return;
   }
 
   try {
     ElMessage.info('正在获取合同文件...');
-    // 💡 保持你原有的下载接口路径
-    const response = await fetch(`http://localhost:9080/api/contracts/file/${fileKey}`);
+    const response = await fetch(`http://localhost:9080${row.fileUrl}`);
     
     if (response.status === 404) {
       ElMessage.error('未找到关联的电子合同物理文件');
@@ -743,6 +746,7 @@ const handleDownload = async (row) => {
     a.href = url;
     
     // 优先用合同真实名称命名，没有就用编号
+    const fileKey = row.contractId || row.contractNo || row._id;
     a.download = row.name ? `${row.name}.pdf` : `合同_${fileKey}.pdf`;
     document.body.appendChild(a);
     a.click();
@@ -881,7 +885,7 @@ const filteredData = computed(() => {
 // 新增：搜索函数，根据筛选条件向后端调用
 // 支持完全灵活的筛选：不需要填写任何条件、可单独一项、也可以多项组合
 const handleSearch = async () => {
-  // 沔胜条件数量
+  // 统计条件数量
   const filterCount = [filters.keyword, filters.category, filters.contractType, filters.customerType, filters.status].filter(Boolean).length +
                      ((filters.minAmount !== null && filters.minAmount !== undefined) ? 1 : 0) +
                      ((filters.maxAmount !== null && filters.maxAmount !== undefined) ? 1 : 0);
@@ -893,7 +897,7 @@ const handleSearch = async () => {
   }
   
   currentPage.value = 1 // 恢复到第一页
-  await fetchTableDataWithFilters();
+  await fetchTableData();
 }
 
 const handleResetFilters = () => {

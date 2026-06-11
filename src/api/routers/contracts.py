@@ -73,11 +73,42 @@ def serialize_doc(doc):
 @router.get("/contracts")
 async def get_contracts(
     role: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),   # 💡 默认第 1 页
-    size: int = Query(10, ge=1)   # 💡 默认只给 10 条,前端可以传参 例如20、50、100 来覆盖
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1),
+    keyword: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    contractType: Optional[str] = Query(None),
+    customerType: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    minAmount: Optional[float] = Query(None),
+    maxAmount: Optional[float] = Query(None),
 ):
     # 统一的基础查询：只查询未删除的合同
     query_filter = {"isDeleted": False}
+    
+    # 组合筛选条件
+    if keyword:
+        query_filter["$or"] = [
+            {"name": {"$regex": keyword, "$options": "i"}},
+            {"contractId": {"$regex": keyword, "$options": "i"}},
+            {"contractNo": {"$regex": keyword, "$options": "i"}},
+            {"customer": {"$regex": keyword, "$options": "i"}},
+        ]
+    if category:
+        query_filter["category"] = category
+    if contractType:
+        query_filter["contractType"] = contractType
+    if customerType:
+        query_filter["customerType"] = customerType
+    if status:
+        query_filter["status"] = status
+    if minAmount is not None or maxAmount is not None:
+        amount_filter = {}
+        if minAmount is not None:
+            amount_filter["$gte"] = minAmount
+        if maxAmount is not None:
+            amount_filter["$lte"] = maxAmount
+        query_filter["amount"] = amount_filter
     
     # 【权限控制分支 1】：如果是 admin 管理员
     if role == "admin":
@@ -280,9 +311,15 @@ async def update_contract(
 @router.delete("/contracts/{contract_id}")
 async def delete_contract(contract_id: str):
     try:
+        # 兼容处理：如果传入的是24位ObjectId则按_id查询，否则按contractId查询
+        if ObjectId.is_valid(contract_id):
+            query = {"_id": ObjectId(contract_id)}
+        else:
+            query = {"$or": [{"contractId": contract_id}, {"contractNo": contract_id}]}
+        
         # 逻辑删除：只标记为已删除，保留历史数据
         result = await contract_collection.update_one(
-            {"contractId": contract_id},
+            query,
             {"$set": {"isDeleted": True, "updateTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}}
         )
         
@@ -290,6 +327,8 @@ async def delete_contract(contract_id: str):
             return {"message": "删除成功"}
         else:
             raise HTTPException(status_code=404, detail="未找到对应的合同记录")
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -299,9 +338,12 @@ async def batch_download_contracts(
     contract_ids: List[str] = Query(...)
 ):
     try:
-        # 1. 查找合同
+        # 1. 查找合同（兼容 contractId 和 contractNo）
         cursor = contract_collection.find({
-            "contractId": {"$in": contract_ids},
+            "$or": [
+                {"contractId": {"$in": contract_ids}},
+                {"contractNo": {"$in": contract_ids}}
+            ],
             "isDeleted": False
         })
         contracts_list = await cursor.to_list(length=len(contract_ids))
