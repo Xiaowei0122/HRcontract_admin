@@ -95,29 +95,57 @@
       </el-card>
 
       <el-card shadow="never" class="filter-section">
+        <!-- 显示字段行 -->
         <div class="filter-row field-row">
           <span class="row-label"><el-icon><Setting /></el-icon> 显示字段：</span>
-          <el-check-tag
-            v-for="f in allFields" :key="f.key"
-            :checked="visibleFields.includes(f.key)"
-            @change="toggleField(f.key)"
-            class="custom-tag"
-          >
-            {{ f.label }}
-          </el-check-tag>
+          <div class="field-tags-wrapper">
+            <el-check-tag
+              v-for="f in allFields" :key="f.key"
+              :checked="visibleFields.includes(f.key)"
+              @change="toggleField(f.key)"
+              class="custom-tag"
+            >
+              {{ f.label }}
+            </el-check-tag>
+          </div>
         </div>
-        <div class="filter-row">
-          <el-space wrap :size="12">
-            <el-input v-model="filters.keyword" placeholder="搜索名称/编号/客户名称" style="width: 300px" clearable :prefix-icon="Search" />
-            <el-select v-model="filters.status" placeholder="全部状态" clearable style="width: 140px">
-              <el-option v-for="s in statusList" :key="s" :label="s" :value="s" />
-            </el-select>
-          </el-space>
+        
+        <!-- 搜索和筛选行 -->
+        <div class="filter-row search-row">
+          <el-input v-model="filters.keyword" placeholder="搜索名称/编号/客户名称" clearable :prefix-icon="Search" class="search-input" />
+          <el-select v-model="filters.category" placeholder="产品类别" clearable>
+            <el-option v-for="c in categories" :key="c" :label="c" :value="c" />
+          </el-select>
+          <el-select v-model="filters.contractType" placeholder="合同类型" clearable>
+            <el-option label="销售合同" value="销售合同" />
+            <el-option label="采购合同" value="采购合同" />
+            <el-option label="服务合同" value="服务合同" />
+          </el-select>
+          <el-select v-model="filters.customerType" placeholder="客户类别" clearable>
+            <el-option v-for="ct in customerTypes" :key="ct" :label="ct" :value="ct" />
+          </el-select>
+          <el-select v-model="filters.status" placeholder="全部状态" clearable>
+            <el-option v-for="s in statusList" :key="s" :label="s" :value="s" />
+          </el-select>
+          
+          <!-- 金额区间筛选内联 -->
+          <div class="amount-inline">
+            <span class="amount-label">合同金额区间(万元)：</span>
+            <el-input-number v-model="filters.minAmount" placeholder="最小值" :min="0" :precision="2" class="amount-input" clearable controls-position="right" />
+            <span class="amount-separator">~</span>
+            <el-input-number v-model="filters.maxAmount" placeholder="最大值" :min="0" :precision="2" class="amount-input" clearable controls-position="right" />
+          </div>
+          
+          <el-button type="primary" @click="handleSearch" class="search-btn"><el-icon><Search /></el-icon> 搜索</el-button>
+          <el-button @click="handleResetFilters" class="reset-btn"><el-icon><ArrowLeft /></el-icon> 重置</el-button>
+          <el-button type="warning" :icon="Download" @click="handleBatchDownload" :disabled="isGuest || selectedRows.length === 0" style="margin-left: 12px;">
+            批量下载 (已选 {{ selectedRows.length }} 份)
+          </el-button>
         </div>
         </el-card>
 
       <el-card shadow="never" class="table-card">
-        <el-table ref="tableRef" :data="displayedTableData" v-loading="loading" stripe>
+        <el-table ref="tableRef"  :data="displayedTableData" stripe @selection-change="handleSelectionChange" v-loading="loading" element-loading-text="数据加载中..." style="width: 100%">
           <el-table-column type="selection" width="50" />
           <el-table-column v-for="col in activeColumns" :key="col.key" :prop="col.key" :label="col.label" show-overflow-tooltip>
             <template #default="{ row }">
@@ -229,7 +257,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="合同编号 *" required>
-              <el-input v-model="form.contractNo" placeholder="请输入或系统生成" />
+              <el-input v-model="form.contractId" disabled placeholder="系统自动生成" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -270,6 +298,16 @@
           <el-col :span="12">
             <el-form-item label="客户名称">
               <el-input v-model="form.customer" placeholder="请输入单位全称" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-row :gutter="24">
+          <el-col :span="12">
+            <el-form-item label="签署公司">
+              <el-select v-model="form.signingCompany" style="width: 100%" clearable>
+                <el-option v-for="sc in signingCompanies" :key="sc" :label="sc" :value="sc" />
+              </el-select>
             </el-form-item>
           </el-col>
         </el-row>
@@ -338,7 +376,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
-import { Document, ArrowLeft, Delete ,EditPen ,Briefcase, Plus, Search, PieChart, Setting, UploadFilled, InfoFilled, Files, Money, Check, Timer, SwitchButton, UserFilled, Tickets } from '@element-plus/icons-vue'
+import { Download, Document, ArrowLeft, Delete ,EditPen ,Briefcase, Plus, Search, PieChart, Setting, UploadFilled, InfoFilled, Files, Money, Check, Timer, SwitchButton, UserFilled, Tickets } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Chart from 'chart.js/auto'
 import axios from 'axios'
@@ -386,6 +424,7 @@ const handleLogout = () => {
 // --- 基础数据 (保持原有配置) ---
 const categories = ["计算机设备", "办公用品", "电子产品", "福利产品", "劳保用品", "办公耗材" , "网络安防" ,"维修维护服务"]
 const customerTypes = ["高校", "党政机关", "国企", "央企", "事业单位", "民营企业"]
+const signingCompanies = ["鸿瑞办公", "政通慧采", "众冠供应链"] // 新增：签署公司列表
 const categoryColorMap =  {"计算机设备": "#3b82f6","办公用品": "#10b981","电子产品": "#f59e0b", "福利产品": "#ef4444",  "劳保用品": "#f97316",  "办公耗材": "#8b5cf6",  "网络安防": "#06b6d4",  "维修维护服务": "#ec4899"}
 const statusList = ["草稿", "待签署", "已签署", "已终止"]
 const statusTagMap = { '已签署': 'success', '待签署': 'warning', '草稿': 'info', '已终止': 'danger' }
@@ -403,41 +442,48 @@ const fetchTableData = async () => {
   const role = localStorage.getItem('userRole') || 'visitor'
   
   try {
-    // 💡 使用 Promise.all 同时发出两个请求，速度最快
+    // 💡 1. 组装筛选参数，发送给后端进行跨页的全局模糊搜索
+    let url = `http://localhost:9080/api/contracts?role=${role}&page=${currentPage.value}&size=${pageSize.value}`
+    if (filters.keyword) url += `&keyword=${encodeURIComponent(filters.keyword)}`
+    if (filters.status) url += `&status=${encodeURIComponent(filters.status)}`
+
+    // 💡 2. 大盘全量统计依然保持全盘，但也要带上搜索条件，让顶部的图表跟着筛选框动态变化！
+    let allUrl = `http://localhost:9080/api/contracts?role=${role}`
+    if (filters.keyword) allUrl += `&keyword=${encodeURIComponent(filters.keyword)}`
+    if (filters.status) allUrl += `&status=${encodeURIComponent(filters.status)}`
+
     const [pageRes, allRes] = await Promise.all([
-      // 请求 1：带分页参数，拿当前页的切片数据
-      fetch(`http://localhost:9080/api/contracts?role=${role}&page=${currentPage.value}&size=${pageSize.value}`),
-      // 请求 2：不带分页参数，捞全盘不切片的数据（供大盘使用）
-      fetch(`http://localhost:9080/api/contracts?role=${role}`)
+      fetch(url),
+      fetch(allUrl)
     ])
 
     if (pageRes.ok && allRes.ok) {
       const pageData = await pageRes.json()
       const allData = await allRes.json()
       
-      // 1. 给表格赋值（解析后端的打包结构）
+      // 表格赋值
       if (pageData && typeof pageData === 'object' && 'list' in pageData) {
         contracts.value = pageData.list     
-        totalCount.value = pageData.total   // 撑开底部分页器
+        totalCount.value = pageData.total   
       } else {
         contracts.value = pageData
         totalCount.value = pageData.length
       }
 
-      // 2. 给大盘全量变量赋值
+      // 大盘赋值
       if (allData && typeof allData === 'object' && 'list' in allData) {
         allContractsData.value = allData.list
       } else {
         allContractsData.value = allData
       }
-      console.log("--- 切片数据与大盘总数同步成功 ---")
     }
   } catch (error) {
-    console.error("API 联动失败:", error)
+    console.error("筛选联动失败:", error)
   } finally {
     loading.value = false
   }
 }
+
 
 // 页面挂载时立即获取数据
 onMounted(() => {
@@ -448,7 +494,7 @@ onMounted(() => {
 // --- 弹窗逻辑整合 ---
 const modalVisible = ref(false)
 const form = reactive({
-  // 1. 唯一标识：改为 contractId (对应图 2)，初始给空字符串
+  // 1. 唯一标识：改为 contractId，初始给空字符串
   contractId: '', 
   name: '', 
   contractNo: '', 
@@ -456,6 +502,7 @@ const form = reactive({
   category: '',
   customerType: '', 
   customer: '', 
+  signingCompany: '',  // 新增：签署公司
   contactPerson: '', 
   contactPhone: '',
   servicePeriod: '', 
@@ -474,13 +521,36 @@ const handleOpenModal = (row = null) => {
 
   if (row) {
     Object.assign(form, { ...row })
-    form.id = row._id || row.id || null
+    
+    // 💡 彻底防空：过滤掉可能遗留的 "undefined" 伪值
+    if (row._id && String(row._id).trim() !== 'undefined') {
+      const idStr = typeof row._id === 'object' ? (row._id.$oid || JSON.stringify(row._id)) : String(row._id);
+      const match = idStr.match(/[0-9a-fA-F]{24}/);
+      form._id = match ? match[0] : '';
+    } else {
+      form._id = '';
+    }
+    
+    form.contractId = row.contractId || row.contractNo || ''
   } else {
+    const now = new Date()
+    const uniqueId = `HT${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}${String(now.getMilliseconds()).padStart(3, '0')}`
+
     Object.assign(form, {
-      id: null, name: '', contractNo: 'HT-' + Date.now().toString().slice(-4),
-      contractType: '销售合同', category: '', customerType: '', customer: '',
-      contactPerson: '', contactPhone: '', servicePeriod: '', signDate: '',
-      amount: 0, status: '草稿', remark: '', createTime: '', updateTime: ''
+      _id: '',               
+      contractId: uniqueId,
+      name: '', 
+      contractType: '销售合同', 
+      category: '', 
+      customerType: '', 
+      customer: '',
+      contactPerson: '', 
+      contactPhone: '', 
+      servicePeriod: '', 
+      signDate: '',
+      amount: 0, 
+      status: '草稿', 
+      remark: ''
     })
   }
   modalVisible.value = true
@@ -521,17 +591,16 @@ const handleCurrentChange = (page) => {
 const handleSave = async () => {
   console.log("1. 启用保存，准备提交数据");
   try {
-    // 1. 开启加载状态
     loading.value = true;
+    isSubmitting.value = true;
     
-    // 2. 创建 FormData 对象
     const formData = new FormData();
-    //console.log("2. 准备构建数据", form);
     
-    // 3. 按照后端接口定义的参数添加
-    // 注意：只传业务输入字段，系统字段（ID、时间）交给后端生成
-    formData.append('name', form.name);
-    formData.append('contractNo', form.contractNo);
+    // 确保传输给后端的业务编号绝对纯净
+    formData.append('contractId', form.contractId);
+    formData.append('contractNo', form.contractId); 
+    
+    formData.append('name', form.name || '');
     formData.append('category', form.category || '');
     formData.append('amount', parseFloat(form.amount) || 0);
     formData.append('status', form.status || '草稿');
@@ -543,109 +612,208 @@ const handleSave = async () => {
     formData.append('signDate', form.signDate || '');
     formData.append('servicePeriod', form.servicePeriod || '');
     formData.append('remark', form.remark || '');
-    
-    // 操作人可以从本地存储获取
     formData.append('operator', localStorage.getItem('userRole') || 'admin');
 
-    // 4. 添加文件 (这里的 key 'file' 必须与后端的 upload_contract 参数名一致)
     if (fileList.value.length > 0) {
       formData.append('file', fileList.value[0].raw);
     }
-    console.log("3. 准备发送请求到后端...");
+    
+    // 💡 健壮修复：全方位拦截任何形式的空值或 "undefined" 伪字符串
+    let rawId = '';
+    if (form._id && String(form._id).trim() !== 'undefined') {
+      const idStr = typeof form._id === 'object' 
+        ? (form._id.$oid || JSON.stringify(form._id)) 
+        : String(form._id);
+      
+      // 必须符合 24 位 MongoDB ObjectId 规范 (0-9, a-f)
+      const match = idStr.match(/[0-9a-fA-F]{24}/);
+      rawId = match ? match[0] : '';
+    }
 
-    const isEdit = !!form._id; 
+    // 💡 只有真正拥有 24 位数据库特征 ID 的才判定为编辑修改模式
+    const isEdit = !!rawId;
     
     const url = isEdit 
-      ? `http://localhost:9080/api/contracts/${form._id}` 
+      ? `http://localhost:9080/api/contracts/${rawId}` 
       : `http://localhost:9080/api/contracts/upload`;
     
     const method = isEdit ? 'put' : 'post';
+    console.log(`[数据网络同步] 操作模式: ${isEdit ? '修改' : '新建'}, 最终路由: ${url}`);
 
-    // 5. 发送请求
     const response = await axios[method](url, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
 
     if (response.data.status === 'success') {
-      ElMessage.success('合同数据与附件已同步至数据库');
+      ElMessage.success('合同档案数据同步成功');
       modalVisible.value = false;
-      // 重置文件列表和表单 (可选)
       fileList.value = [];
-      fetchTableData(); // 刷新列表
+      fetchTableData(); 
     }
   } catch (error) {    
-    // 提取 FastAPI 返回的具体错误信息
+    console.error("提交异常详情:", error);
     const errorDetail = error.response?.data?.detail;
-    let errorMsg = '字段校验错误';
+    let errorMsg = '数据更新失败';
     if (Array.isArray(errorDetail)) {
         errorMsg = `${errorDetail[0].loc[1]}: ${errorDetail[0].msg}`;
+    } else if (typeof errorDetail === 'string') {
+        errorMsg = errorDetail;
     }
-    
-    ElMessage.error('同步失败: ' + errorMsg);
+    ElMessage.error(errorMsg);
   } finally {
     loading.value = false;
-    isSubmitting.value = false
+    isSubmitting.value = false;
   }
 };
 
 // 删除合同
 const handleDelete = async (row) => {
-  const id = row._id || row.id; // 确保获取到数据库生成的唯一 ID
-  if (!id) {
-    ElMessage.error('无法获取合同ID，请刷新列表重试');
+  // 💡 健壮修复：提取多层嵌套，同时阻断 "undefined"
+  let rawId = '';
+  const sourceId = row._id || row.id;
+  
+  if (sourceId && String(sourceId).trim() !== 'undefined') {
+    const idStr = typeof sourceId === 'object' 
+      ? (sourceId.$oid || JSON.stringify(sourceId)) 
+      : String(sourceId);
+    const match = idStr.match(/[0-9a-fA-F]{24}/);
+    rawId = match ? match[0] : '';
+  }
+
+  // 💡 如果实在拿不到 24 位主键，则拿新版的 contractId 去匹配删除（作为后备降级手段）
+  const fallbackId = rawId || row.contractId || row.contractNo;
+
+  if (!fallbackId || fallbackId === 'undefined') {
+    ElMessage.error('无法提取该合同的有效标识符，删除中止');
     return;
   }
 
   try {
+    await ElMessageBox.confirm('确定要永久移出该合同记录及关联物理附件吗？', '系统警告', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    });
+
     loading.value = true;
-    // 调用后端删除接口
-    const response = await fetch(`http://localhost:9080/api/contracts/${id}`, {
+    const response = await fetch(`http://localhost:9080/api/contracts/${fallbackId}`, {
       method: 'DELETE'
     });
 
     if (response.ok) {
-      ElMessage.success('合同已成功删除');
-      fetchTableData(); // 重新加载列表，更新统计数据和图表
+      ElMessage.success('合同档案已成功移出系统');
+      fetchTableData(); 
     } else {
       const errorData = await response.json();
       throw new Error(errorData.detail || '删除失败');
     }
   } catch (error) {
-    console.error("删除出错:", error);
-    ElMessage.error('删除失败：' + error.message);
+    if (error !== 'cancel') {
+      ElMessage.error('删除请求失败：' + error.message);
+    }
   } finally {
     loading.value = false;
   }
 }
 
-// 下载附件
+// 单独下载附件
 const handleDownload = async (row) => {
-  if (!row.fileUrl || !row.fileName) {
-    ElMessage.error('文件信息不完整，无法下载');
+  // 💡 核心修复：优先取新主键 contractId，如果没有（说明是历史老数据），则降级取 contractNo 或 数据库 _id
+  const fileKey = row.contractId || row.contractNo || row._id;
+  
+  if (!fileKey) {
+    ElMessage.error('无法获取该合同的有效编号，下载失败');
     return;
   }
 
   try {
-    const response = await fetch(`http://localhost:9080${row.fileUrl}`);
-    if (!response.ok) {
-      throw new Error('下载失败');
+    ElMessage.info('正在获取合同文件...');
+    // 💡 保持你原有的下载接口路径
+    const response = await fetch(`http://localhost:9080/api/contracts/file/${fileKey}`);
+    
+    if (response.status === 404) {
+      ElMessage.error('未找到关联的电子合同物理文件');
+      return;
     }
+    if (!response.ok) throw new Error('下载失败');
 
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = row.fileName;
+    
+    // 优先用合同真实名称命名，没有就用编号
+    a.download = row.name ? `${row.name}.pdf` : `合同_${fileKey}.pdf`;
     document.body.appendChild(a);
     a.click();
-    window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
-    ElMessage.success('文件下载成功');
+    window.URL.revokeObjectURL(url);
+    ElMessage.success('合同文件下载成功');
   } catch (error) {
-    console.error("下载出错:", error);
-    ElMessage.error('下载失败：' + error.message);
+    console.error(error);
+    ElMessage.error('文件下载失败，请检查网络或后端存储');
   }
+};
+
+
+//批量下载
+// --- 批量选择与下载逻辑 ---
+const selectedRows = ref([]) // 💡 存放勾选的合同行数据
+
+// 表格多选框改变时的回调
+const handleSelectionChange = (selection) => {
+  selectedRows.value = selection
 }
+
+// 执行批量下载
+const handleBatchDownload = async () => {
+  if (selectedRows.value.length === 0) return;
+
+  // 💡 核心修复：提取 ID 时，同时兼容新合同的 contractId 和老合同的 contractNo / _id
+  const contractIds = selectedRows.value.map(row => {
+    return row.contractId || row.contractNo || row._id;
+  }).filter(Boolean);
+  
+  if (contractIds.length === 0) {
+    ElMessage.error('选中的合同数据中未包含有效编号');
+    return;
+  }
+
+  try {
+    ElMessage.info('正在请求后端打包，请稍候...');
+    const params = new URLSearchParams();
+    
+    // 将兼容后得到的真实 ID 逐个追加到 URL 参数中
+    contractIds.forEach(id => params.append('contract_ids', id));
+
+    const response = await fetch(`http://localhost:9080/api/contracts/batch-download?${params.toString()}`);
+    
+    if (response.status === 404) {
+      ElMessage.error('选中的合同中存在找不到物理文件的项，打包终止');
+      return;
+    }
+    if (!response.ok) throw new Error('批量打包失败');
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    
+    // 规范命名
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    a.download = `合同批量下载_${dateStr}.zip`;
+    
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    ElMessage.success(`成功打包并下载 ${contractIds.length} 份合同档案`);
+  } catch (error) {
+    console.error(error);
+    ElMessage.error('批量下载失败，请确认后端服务状态');
+  }
+};
+
 
 // 翻页组件
 // --- 1. 基础状态 ---
@@ -655,19 +823,11 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const totalCount = ref(0) // 💡 变成响应式变量，由第二步的 fetchTableData 统一赋值
 
-// --- 💡 修正后的表格渲染计算属性 ---
-// 现在的 contracts.value 已经是后端切好片吐出来的 10 条了，不需要再用 .slice() 切片
-// 我们只需要在这里保留你原本的模糊搜索逻辑，确保搜索框（名称/编号/状态）完美好使！
+// --- 表格渲染计算属性 ---
+// 直接返回后端过滤后的数据，不在前端再做过滤
+// 后端已经根据 keyword、category、contractType、customerType、amount 等条件过滤好了
 const displayedTableData = computed(() => {
-  const data = contracts.value || []
-  return data.filter(i => 
-    (!filters.keyword || 
-      (i.name && i.name.includes(filters.keyword)) || 
-      (i.contractNo && i.contractNo.includes(filters.keyword)) || 
-      (i.customer && i.customer.includes(filters.keyword))
-    ) && 
-    (!filters.status || i.status === filters.status)
-  )
+  return contracts.value || []
 })
 
 // --- 统计/筛选/显示逻辑 ---
@@ -682,7 +842,7 @@ const statistics = computed(() => [
   { title: '待处理', value: allContractsData.value.filter(c => c.status !== '已签署').length, unit: '份', icon: Timer, color: '#f59e0b' }
 ])
 
-const visibleFields = ref(['contractId', 'name','contractType','customer','customerType', 'amount', 'status', 'signDate'])
+const visibleFields = ref(['contractId', 'name','contractType','customer','customerType','signingCompany', 'amount', 'status', 'signDate'])
 const allFields = [
   { key: 'name', label: '合同名称' },
   { key: 'contractId', label: '合同ID '},
@@ -690,6 +850,7 @@ const allFields = [
   { key: 'category', label: '产品类别' },
   { key: 'customerType', label: '客户类别' },
   { key: 'customer', label: '客户名称' },
+  { key: 'signingCompany', label: '签署公司' },  // 新增：签署公司显示字段
   { key: 'contactPerson', label: '联系人' },
   { key: 'contactPhone', label: '联系电话' },
   { key: 'servicePeriod', label: '服务期限' },
@@ -703,10 +864,105 @@ const allFields = [
   { key: 'operator', label: '操作人'}
 ]
 const activeColumns = computed(() => allFields.filter(f => visibleFields.value.includes(f.key)))
-const filters = reactive({ keyword: '', status: '' })
+// 新增：扩展filters对象以支持多维度筛选
+const filters = reactive({ 
+  keyword: '', 
+  status: '',
+  category: '',
+  contractType: '',
+  customerType: '',
+  minAmount: null,
+  maxAmount: null
+})
 const filteredData = computed(() => {
   return contracts.value.filter(i => (!filters.keyword || i.name.includes(filters.keyword)) && (!filters.status || i.status === filters.status))
 })
+
+// 新增：搜索函数，根据筛选条件向后端调用
+// 支持完全灵活的筛选：不需要填写任何条件、可单独一项、也可以多项组合
+const handleSearch = async () => {
+  // 沔胜条件数量
+  const filterCount = [filters.keyword, filters.category, filters.contractType, filters.customerType, filters.status].filter(Boolean).length +
+                     ((filters.minAmount !== null && filters.minAmount !== undefined) ? 1 : 0) +
+                     ((filters.maxAmount !== null && filters.maxAmount !== undefined) ? 1 : 0);
+  
+  if (filterCount === 0) {
+    ElMessage.info('未选择任何筛选条件，即将为您显示全部数据');
+  } else {
+    console.log(`执行搜索，已选择 ${filterCount} 个筛选条件：`, filters);
+  }
+  
+  currentPage.value = 1 // 恢复到第一页
+  await fetchTableDataWithFilters();
+}
+
+const handleResetFilters = () => {
+  console.log('重置筛选条件');
+  filters.keyword = '';
+  filters.status = '';
+  filters.category = '';
+  filters.contractType = '';
+  filters.customerType = '';
+  filters.minAmount = null;
+  filters.maxAmount = null;
+  currentPage.value = 1;
+  fetchTableData(); // 重新加载同步处理
+}
+
+// 新增：拨打参数并向后端发起请求的带筛选条件的获取函数
+const fetchTableDataWithFilters = async () => {
+  loading.value = true
+  const role = localStorage.getItem('userRole') || 'visitor'
+  
+  // 构建查询参数
+  const params = new URLSearchParams();
+  params.append('role', role);
+  params.append('page', currentPage.value);
+  params.append('size', pageSize.value);
+  
+  // 筛选条件
+  if (filters.keyword) params.append('keyword', filters.keyword);
+  if (filters.category) params.append('category', filters.category);
+  if (filters.contractType) params.append('contractType', filters.contractType);
+  if (filters.customerType) params.append('customerType', filters.customerType);
+  if (filters.minAmount !== null && filters.minAmount !== undefined) params.append('minAmount', filters.minAmount);
+  if (filters.maxAmount !== null && filters.maxAmount !== undefined) params.append('maxAmount', filters.maxAmount);
+  if (filters.status) params.append('status', filters.status);
+  
+  try {
+    const [pageRes, allRes] = await Promise.all([
+      fetch(`http://localhost:9080/api/contracts?${params.toString()}`),
+      fetch(`http://localhost:9080/api/contracts?role=${role}`) // 全量数据悠保不带筛选条件来更新图表
+    ])
+    
+    if (pageRes.ok && allRes.ok) {
+      const pageData = await pageRes.json()
+      const allData = await allRes.json()
+      
+      if (pageData && typeof pageData === 'object' && 'list' in pageData) {
+        contracts.value = pageData.list
+        totalCount.value = pageData.total
+      } else {
+        contracts.value = pageData
+        totalCount.value = pageData.length
+      }
+      
+      if (allData && typeof allData === 'object' && 'list' in allData) {
+        allContractsData.value = allData.list
+      } else {
+        allContractsData.value = allData
+      }
+      
+      // 消成批量提示会话之提供了成功带流 专网阐排源须每一条数据湋是董手一次正优一龍
+      ElMessage.success(`筛选成功，共找到 ${totalCount.value} 条合同`);
+      console.log('按条件丢查成功', {total: totalCount.value, currentCount: contracts.value.length})
+    }
+  } catch (error) {
+    console.error('API 联动失败:', error)
+  } finally {
+    loading.value = false
+  }
+}
 
 const getCatData = (cat) => {
   const data = allContractsData.value || [] 
@@ -938,9 +1194,30 @@ onMounted(() => {
 .filter-section { margin-bottom: 24px; border: 1px solid #ebeef5; border-radius: 10px; overflow: hidden; }
 .filter-row { display: flex; align-items: center; padding: 14px 20px; border-bottom: 1px solid #f2f6fc; }
 .filter-row:nth-child(2) { background-color: #fafbfc; }
-.row-label { font-size: 13px; color: #909399; font-weight: bold; margin-right: 10px; flex-shrink: 0; }
-.custom-tag { cursor: pointer; border-radius: 20px; margin-right: 8px; border: 1px solid #dcdfe6; background: #fff; }
+.filter-row:last-child { border-bottom: none; background-color: #fff; }
+.row-label { font-size: 13px; color: #909399; font-weight: bold; margin-right: 20px; flex-shrink: 0; }
+
+/* 显示字段行 */
+.field-row { flex-wrap: wrap; gap: 8px; }
+.field-tags-wrapper { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
+.custom-tag { cursor: pointer; border-radius: 20px; border: 1px solid #dcdfe6; background: #fff; font-size: 12px; }
 .custom-tag.is-checked { background: #409eff !important; color: #fff !important; }
+
+/* 搜索和筛选行 */
+.search-row { gap: 10px !important; align-items: center; }
+.search-input { width: 200px; }
+.search-row :deep(.el-select) { width: 120px; }
+.search-btn { min-width: 90px; }
+.reset-btn { min-width: 70px; }
+
+/* 金额区间内联 */
+.amount-inline { display: flex; gap: 8px; align-items: center; }
+.amount-label { font-size: 12px; color: #909399; font-weight: bold; white-space: nowrap; }
+.amount-input { width: 110px; }
+.amount-separator { color: #909399; margin: 0 4px; }
+
+/* 搜索按钮靠右 */
+.search-btn { margin-left: auto !important; }
 
 /* 2. 弹窗 UI 更新 (对齐图 2) */
 :deep(.contract-dialog) { border-radius: 12px; }

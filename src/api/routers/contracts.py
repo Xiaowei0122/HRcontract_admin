@@ -1,11 +1,13 @@
 import os
 import shutil
+import zipfile
+from io import BytesIO
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
@@ -19,7 +21,7 @@ router = APIRouter(
 # 1. 数据库与文件存储配置
 #本地测试修改@地址为 192.168.1.111:32771, 生产环境请替换为 mongo-1:27017，并确保 docker-compose.yml 中的服务名称和端口映射正确
 # 测试
-MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@localhost:32768/?authSource=admin")
+MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@192.168.1.111:32771/?authSource=admin")
 
 # 生产
 #MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin")
@@ -35,7 +37,7 @@ contract_collection = database.get_collection("contract")
 UPLOAD_DIR = Path(os.getenv("CONTRACT_UPLOAD_DIR", str(Path(__file__).resolve().parent.parent / "contracts")))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# 2. 数据模型 (根据图 2 字段补全)
+# 2. 数据模型
 class ContractData(BaseModel):
     contractId: Optional[str] = None
     name: str
@@ -46,6 +48,7 @@ class ContractData(BaseModel):
     customer: Optional[str] = None
     customerType: Optional[str] = None
     contractType: Optional[str] = None
+    signingCompany: Optional[str] = None  # 新增：签署公司字段
     contactPerson: Optional[str] = None
     contactPhone: Optional[str] = None
     signDate: Optional[str] = None
@@ -112,6 +115,7 @@ async def get_contracts(
 @router.post("/contracts/upload")
 async def upload_contract(
     # 1. 必填字段 (必须和前端 formData.append 的第一个参数完全一致)
+    contractId: str = Form(...), # 前端直接传入唯一 contractId
     name: str = Form(...),
     contractNo: str = Form(...),
     
@@ -122,6 +126,7 @@ async def upload_contract(
     customer: Optional[str] = Form(None),
     customerType: Optional[str] = Form(None),
     contractType: Optional[str] = Form(None),
+    signingCompany: Optional[str] = Form(None),  # 新增：签署公司
     contactPerson: Optional[str] = Form(None),
     contactPhone: Optional[str] = Form(None),
     signDate: Optional[str] = Form(None),
@@ -133,8 +138,7 @@ async def upload_contract(
     file: UploadFile = File(None)
 ):
     try:
-        # --- A. 后端自动生成系统字段 ---
-        contractId = f"HT{datetime.now().strftime('%Y%m%d%H%M%S%f')[:-3]}" # 毫秒级 ID
+        # --- A. 生成系统时间字段 ---
         now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # --- B. 处理文件保存到 NAS ---
@@ -154,6 +158,7 @@ async def upload_contract(
         # --- C. 组装存入 MongoDB 的真数据 (严格对应图 2 字段) ---
         new_doc = {
             "contractId": contractId,       # 唯一标识
+
             "name": name,
             "contractNo": contractNo,
             "category": category,
@@ -162,6 +167,7 @@ async def upload_contract(
             "customer": customer,
             "customerType": customerType,
             "contractType": contractType,
+            "signingCompany": signingCompany,  # 新增：签署公司
             "contactPerson": contactPerson,
             "contactPhone": contactPhone,
             "signDate": signDate,
@@ -192,73 +198,83 @@ async def upload_contract(
     
 
 # 3. 合同更新 (支持“改”)
-@router.put("/contracts/{db_id}")
+@router.put("/contracts/{contract_id}")
 async def update_contract(
-    db_id: str,
-    name: Optional[str] = Form(None),
+    contract_id: str,
+    contractId: Optional[str] = Form(None),
     contractNo: Optional[str] = Form(None),
-    file: UploadFile = File(None),
+    name: str = Form(...),
     category: Optional[str] = Form(None),
-    amount: Optional[float] = Form(None),
+    amount: float = Form(...),
     status: Optional[str] = Form(None),
-    contractType: Optional[str] = Form(None),
     customer: Optional[str] = Form(None),
     customerType: Optional[str] = Form(None),
+    contractType: Optional[str] = Form(None),
     contactPerson: Optional[str] = Form(None),
     contactPhone: Optional[str] = Form(None),
     signDate: Optional[str] = Form(None),
     servicePeriod: Optional[str] = Form(None),
     remark: Optional[str] = Form(None),
-    operator: Optional[str] = Form(None)
+    operator: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None)
 ):
-    # 1. 过滤并组装待更新字段
-    update_fields = {}
-    
-    # 获取函数接收到的所有本地参数
-    current_locals = locals()
-    # 业务字段清单（排除掉 db_id 和 file 等特殊处理字段）
-    business_fields = [
-        "name", "contractNo", "contractType", "category", "amount", 
-        "status", "customer", "customerType", "contactPerson", 
-        "contactPhone", "signDate", "servicePeriod", "remark", "operator"
-    ]
-    
-    for field in business_fields:
-        val = current_locals.get(field)
-        if val is not None:
-            update_fields[field] = val
-
-    # 2. 处理文件重新上传
-    if file and file.filename:
-        safe_name = Path(file.filename).name
-        file_name = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
-        target_path = UPLOAD_DIR / file_name
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(target_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        update_fields["fileUrl"] = f"/api/contracts/file/{file_name}"
-        update_fields["fileName"] = file.filename
-        update_fields["filePath"] = str(target_path)
-
-    if not update_fields:
-        raise HTTPException(status_code=400, detail="未检测到任何修改内容")
-
-    # 3. 核心：设置更新时间，绝不触碰 createTime 和 creator
-    update_fields["updateTime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
     try:
-        # 4. 执行更新 (使用 $set 确保局部更新)
-        result = await contract_collection.update_one(
-            {"_id": ObjectId(db_id)}, 
-            {"$set": update_fields}
-        )
-        
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="数据库中未找到该记录")
+        # 1. 验证传过来的 24 位 MongoDB ObjectId 是否符合规范
+        if not ObjectId.is_valid(contract_id):
+            raise HTTPException(status_code=400, detail="修改失败: 传入的 contract_id 格式不正确")
+            
+        # 2. 💡 核心修复：把所有从前端接收到的 Form 表单字段，打包组装进 update_data 字典中
+        update_data = {
+            "contractId": contractId if contractId else contractNo, # 新旧字段兼容
+            "contractNo": contractNo if contractNo else contractId,
+            "name": name,
+            "category": category,
+            "amount": amount,
+            "status": status,
+            "customer": customer,
+            "customerType": customerType,
+            "contractType": contractType,
+            "contactPerson": contactPerson,
+            "contactPhone": contactPhone,
+            "signDate": signDate,
+            "servicePeriod": servicePeriod,
+            "remark": remark,
+            "operator": operator,
+            "updateTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S") # 记录修改时间
+        }
 
-        return {"status": "success", "message": "合同资料已更新"}
+        # 3. 处理文件上传（如果用户在编辑时重新选了新文件）
+        if file:
+            filename = file.filename
+            # 使用 contractNo 或 contractId 作为物理文件名，保持磁盘存储整洁
+            use_no = contractNo if contractNo else contractId
+            safe_name = f"{use_no}.pdf"
+            
+            file_path = UPLOAD_DIR / safe_name
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+                
+            # 将新的文件路径和名称同步进更新字典里
+            update_data["path"] = str(file_path)
+            update_data["name"] = filename
+
+        # 4. 执行数据库更新操作
+        result = await contract_collection.update_one(
+            {"_id": ObjectId(contract_id)},
+            {"$set": update_data}
+        )
+
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="未找到对应的合同记录，修改失败")
+
+        return {"status": "success", "message": "合同数据及附件已成功更新"}
+
+    except HTTPException as he:
+        raise he
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"数据库同步失败: {str(e)}")
+        print(f"后端修改报错详情: {str(e)}") # 方便控制台查错
+        raise HTTPException(status_code=500, detail=f"服务器内部修改失败: {str(e)}")
+    
 
 # 4. 数据逻辑删除 (前端不再显示，但数据仍在数据库中)
 @router.delete("/contracts/{contract_id}")
@@ -266,7 +282,7 @@ async def delete_contract(contract_id: str):
     try:
         # 逻辑删除：只标记为已删除，保留历史数据
         result = await contract_collection.update_one(
-            {"_id": ObjectId(contract_id)},
+            {"contractId": contract_id},
             {"$set": {"isDeleted": True, "updateTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}}
         )
         
@@ -277,7 +293,68 @@ async def delete_contract(contract_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# 5. 附件下载
+# 5. 批量打包下载合同附件 (Zip)
+@router.get("/contracts/batch-download")
+async def batch_download_contracts(
+    contract_ids: List[str] = Query(...)
+):
+    try:
+        # 1. 查找合同
+        cursor = contract_collection.find({
+            "contractId": {"$in": contract_ids},
+            "isDeleted": False
+        })
+        contracts_list = await cursor.to_list(length=len(contract_ids))
+        
+        if not contracts_list:
+            raise HTTPException(status_code=404, detail="未找到任何有效的合同记录")
+            
+        # 2. 收集存在的文件
+        files_to_zip = []
+        for c in contracts_list:
+            file_path_str = c.get("filePath")
+            file_name = c.get("fileName")
+            if file_path_str and os.path.exists(file_path_str):
+                files_to_zip.append({
+                    "path": Path(file_path_str),
+                    "name": file_name or Path(file_path_str).name,
+                    "contractNo": c.get("contractNo", "")
+                })
+                
+        if not files_to_zip:
+            raise HTTPException(status_code=400, detail="选中的合同中没有可下载的附件文件")
+            
+        # 3. 在内存中打包成 ZIP
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            existing_names = set()
+            for f in files_to_zip:
+                original_name = f["name"]
+                archive_name = original_name
+                if archive_name in existing_names:
+                    archive_name = f"{f['contractNo']}_{original_name}"
+                existing_names.add(archive_name)
+                
+                zip_file.write(f["path"], archive_name)
+                
+        zip_buffer.seek(0)
+        
+        # 4. 返回流式响应
+        zip_name = f"contracts_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.zip"
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename={zip_name}",
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
+        )
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"批量打包失败: {str(e)}")
+
+# 6. 附件下载
 @router.get("/contracts/file/{file_name}")
 async def download_contract_file(file_name: str):
     try:
