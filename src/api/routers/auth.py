@@ -11,9 +11,9 @@ from datetime import datetime
 
 # 配置数据库连接类型
 #测试（本地Docker）
-MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@192.168.1.111:32771/?authSource=admin")
+#MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@192.168.1.111:32771/?authSource=admin")
 #生产
-#MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin")
+MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin")
 
 client = AsyncIOMotorClient(MONGO_DETAILS)
 # 假设数据库名为 contract_db，用户集合名为 users
