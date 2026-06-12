@@ -75,7 +75,7 @@
           <div class="canvas-wrapper">
             <canvas id="categoryChart"></canvas>
             <div class="chart-inner-text">
-              <p class="total-val">{{ allContractsData.length }}</p>
+              <p class="total-val">{{ contractCount }}</p>
               <p class="total-lab">总合同数</p>
             </div>
           </div>
@@ -86,8 +86,8 @@
                 <span class="legend-name">{{ c }}</span>
               </div>
               <div class="legend-data">
-                <span class="count">{{ getCatData(c).count }} 份</span>
-                <span class="percent">{{ getCatData(c).percent }}%</span>
+                <span class="count">{{ getCatData(c, categoryStatistics).count }} 份</span>
+                <span class="percent">{{ getCatData(c, categoryStatistics).percent }}%</span>
               </div>
             </div>
           </div>
@@ -433,6 +433,11 @@ const statusTagMap = { '已签署': 'success', '待签署': 'warning', '草稿':
 // --- 请求主要数据与状态 ---
 const contracts = ref([])
 const allContractsData = ref([]) // 💡 新增：专门用来喂给图表和顶部统计的全量数据
+const categoryStatistics = ref({}) // 新增：存储分类统计数据
+const totalAmount = ref(0)
+const archivedCount = ref(0)
+const activeCount = ref(0)
+const contractCount = ref(0)
 const loading = ref(false)
 const selectedFile = ref(null)
 const fileList = ref([])
@@ -442,46 +447,62 @@ const fetchTableData = async () => {
   const role = localStorage.getItem('userRole') || 'visitor'
   
   try {
-    // 构建筛选参数
+    // -------------------------------------------------------------
+    // 1. 构建参数（大看板统计和底部分页表格公用同一套筛选框参数，保证联动）
+    // -------------------------------------------------------------
     const params = new URLSearchParams();
     params.append('role', role);
-    params.append('page', currentPage.value);
-    params.append('size', pageSize.value);
-    if (filters.keyword) params.append('keyword', filters.keyword);
+    if (filters.keyword) params.append('keyword', filters.keyword.trim());
     if (filters.category) params.append('category', filters.category);
     if (filters.contractType) params.append('contractType', filters.contractType);
     if (filters.customerType) params.append('customerType', filters.customerType);
     if (filters.status) params.append('status', filters.status);
-    if (filters.minAmount !== null && filters.minAmount !== undefined) params.append('minAmount', filters.minAmount);
-    if (filters.maxAmount !== null && filters.maxAmount !== undefined) params.append('maxAmount', filters.maxAmount);
+    if (filters.minAmount !== null && filters.minAmount !== undefined && filters.minAmount !== '') {
+      params.append('minAmount', filters.minAmount);
+    }
+    if (filters.maxAmount !== null && filters.maxAmount !== undefined && filters.maxAmount !== '') {
+      params.append('maxAmount', filters.maxAmount);
+    }
 
-    // 全量统计（不带分页和筛选，用于图表）
-    let allUrl = `http://localhost:9080/api/contracts?role=${role}`
+    // 表格专属的切片参数（每次只要 10 条，分页绝对正常！）
+    const pageParams = new URLSearchParams(params);
+    pageParams.append('page', currentPage.value);
+    pageParams.append('size', pageSize.value);
 
-    const [pageRes, allRes] = await Promise.all([
-      fetch(`http://localhost:9080/api/contracts?${params.toString()}`),
-      fetch(allUrl)
+    // -------------------------------------------------------------
+    // 2. 并发派发两个请求：一个要10条表格JSON，一个要大看板纯数字统计
+    // -------------------------------------------------------------
+    const [pageRes, statsRes] = await Promise.all([
+      fetch(`http://localhost:9080/api/contracts?${pageParams.toString()}`),
+      fetch(`http://localhost:9080/api/contracts/dashboard-stats?${params.toString()}`) 
     ])
 
-    if (pageRes.ok && allRes.ok) {
+    if (pageRes.ok && statsRes.ok) {
       const pageData = await pageRes.json()
-      const allData = await allRes.json()
+      const statsData = await statsRes.json()
       
-      // 表格赋值
+      //console.log("📋 底部分页表格切片数据:", pageData)
+      //console.log("📊 顶部大看板轻量纯数字统计:", statsData)
+      
+      // A. 表格赋值（保持你最原始无误的解构）
       if (pageData && typeof pageData === 'object' && 'list' in pageData) {
-        contracts.value = pageData.list     
-        totalCount.value = pageData.total   
-      } else {
+        contracts.value = pageData.list || []
+        totalCount.value = pageData.total || 0
+      } else if (Array.isArray(pageData)) {
         contracts.value = pageData
         totalCount.value = pageData.length
       }
 
-      // 大盘赋值
-      if (allData && typeof allData === 'object' && 'list' in allData) {
-        allContractsData.value = allData.list
-      } else {
-        allContractsData.value = allData
-      }
+      // B. 🌟 大看板卡片纯数字直接赋值（完全还原你最初定义的变量）
+      totalAmount.value = statsData.totalAmount || 0     
+      contractCount.value = statsData.totalCount || 0   
+      archivedCount.value = statsData.archivedCount || 0  
+      activeCount.value = statsData.activeCount || 0    
+      // 这里的全局条数如果你上方卡片有用，也可以赋值：dashboardTotal.value = statsData.totalCount
+
+      // C. 🌟 饼图重绘：直接把后端算好的轻量分类映射表给到画图函数
+      categoryStatistics.value = statsData.categoryStats || {}
+      updateChart(categoryStatistics.value)
     }
   } catch (error) {
     console.error("筛选联动失败:", error)
@@ -489,7 +510,6 @@ const fetchTableData = async () => {
     loading.value = false
   }
 }
-
 
 // 页面挂载时立即获取数据
 onMounted(() => {
@@ -548,6 +568,7 @@ const handleOpenModal = (row = null) => {
       name: '', 
       contractType: '销售合同', 
       category: '', 
+      signingCompany: '',
       customerType: '', 
       customer: '',
       contactPerson: '', 
@@ -611,6 +632,7 @@ const handleSave = async () => {
     formData.append('amount', parseFloat(form.amount) || 0);
     formData.append('status', form.status || '草稿');
     formData.append('customer', form.customer || '');
+    formData.append('signingCompany', form.signingCompany || '');
     formData.append('customerType', form.customerType || '');
     formData.append('contractType', form.contractType || '');
     formData.append('contactPerson', form.contactPerson || '');
@@ -840,13 +862,13 @@ const toggleField = (k) => {
   i > -1 ? visibleFields.value.splice(i, 1) : visibleFields.value.push(k); 
 }
 const statistics = computed(() => [
-  { title: '合同总量', value: allContractsData.value.length, unit: '份', icon: Files, color: '#3b82f6' },
-  { title: '累计总金额', value: allContractsData.value.reduce((s, c) => s + c.amount, 0).toFixed(1), unit: '万', icon: Money, color: '#ef4444' },
-  { title: '已签署', value: allContractsData.value.filter(c => c.status === '已签署').length, unit: '份', icon: Check, color: '#10b981' },
-  { title: '待处理', value: allContractsData.value.filter(c => c.status !== '已签署').length, unit: '份', icon: Timer, color: '#f59e0b' }
+  { title: '合同总量', value: contractCount.value, unit: '份', icon: Files, color: '#3b82f6' },
+  { title: '累计总金额', value: totalAmount.value.toFixed(1), unit: '万', icon: Money, color: '#ef4444' },
+  { title: '已签署', value: archivedCount.value, unit: '份', icon: Check, color: '#10b981' },
+  { title: '待处理', value: activeCount.value, unit: '份', icon: Timer, color: '#f59e0b' }
 ])
 
-const visibleFields = ref(['contractId', 'name','contractType','customer','customerType','signingCompany', 'amount', 'status', 'signDate'])
+const visibleFields = ref(['contractId', 'name', 'category', 'contractType', 'customer', 'customerType','signingCompany', 'amount', 'status', 'signDate'])
 const allFields = [
   { key: 'name', label: '合同名称' },
   { key: 'contractId', label: '合同ID '},
@@ -968,26 +990,24 @@ const fetchTableDataWithFilters = async () => {
   }
 }
 
-const getCatData = (cat) => {
-  const data = allContractsData.value || [] 
-  const count = data.filter(i => i.category === cat).length
-  return { 
-    count, 
-    percent: data.length ? ((count / data.length) * 100).toFixed(0) : 0 
+const getCatData = (cat, stats) => {
+  const count = Number(stats[cat]) || 0
+  return {
+    count,
+    percent: contractCount.value ? ((count / contractCount.value) * 100).toFixed(0) : 0
   }
 }
 
 // 图表渲染逻辑
 let chartInst = null
 
-const updateChart = () => {
+// 💡 接收 fetchTableData 传过来的轻量分类字典
+const updateChart = (categoryStats = {}) => {
   const ctx = document.getElementById('categoryChart')
   if (!ctx) return
 
-  //基于全量数据进行统计，保证翻页时数据源稳定
-  const newData = categories.map(c => 
-    allContractsData.value.filter(i => i.category === c).length
-  )
+  // 💡 直接从后端返回的轻量字典里按 categories 数组定义的顺序提取纯数字，极其稳定安全
+  const newData = categories.map(c => Number(categoryStats[c]) || 0)
 
   if (!chartInst) {
     chartInst = new Chart(ctx, {
@@ -1004,20 +1024,15 @@ const updateChart = () => {
       options: { 
         responsive: true, 
         maintainAspectRatio: false, 
-        animation: {
-          duration: 400 // 缩短初次加载动画时间，体验更丝滑
-        },
         plugins: { legend: { display: false } } 
       }
     })
   } else {
-    // 💡 关键机制：先转为字符串比对新旧数据，若完全一致则直接拦截，绝不触发 Chart.js 的重绘动画！
     const oldData = chartInst.data.datasets[0].data
     if (JSON.stringify(oldData) === JSON.stringify(newData)) {
-      return // 数据没变，直接抱拳告退，圆环纹丝不动
+      return // 数据若一致，无视重绘动画
     }
     
-    // 如果真的增删了合同，数据变了，才进行静默更新
     chartInst.data.datasets[0].data = newData
     chartInst.update() 
   }

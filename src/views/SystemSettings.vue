@@ -202,12 +202,23 @@ const saveConfig = async (key, value) => {
 }
 
 // 密码修改逻辑 (后续可对接后端)
-const handlePasswordUpdate = () => {
-  if (!newPassword.value) return ElMessage.warning('请输入新密码')
-  ElMessage.success('管理员密码修改成功')
-  showPasswordDialog.value = false
-  newPassword.value = ''
+const handlePasswordUpdate = async () => {
+  try{
+    const response = await fetch('http://localhost:9080/api/settings/update_password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_password: newPassword.value })
+    })
+    if (response.ok) {
+      ElMessage.success('管理员密码已修改（模拟）')
+      showPasswordDialog.value = false
+      newPassword.value = ''
+    }
+  } catch (err) {
+    ElMessage.error('无法更新密码，请检查后端网络')
+  }
 }
+  
 </script>
 
 <style scoped>

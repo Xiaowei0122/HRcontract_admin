@@ -68,13 +68,92 @@ def serialize_doc(doc):
     return doc
 
 # --- 接口实现 ---
+# 1.获取合同数量统计数据
+@router.get("/contracts/dashboard-stats")
+async def get_dashboard_stats(
+    role: Optional[str] = Query(None),
+    keyword: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    contractType: Optional[str] = Query(None),
+    customerType: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    minAmount: Optional[float] = Query(None),
+    maxAmount: Optional[float] = Query(None),
+):
+    try:
+        # 1. 组装与列表完全一致的筛选条件，保证大看板数据和当前筛选框同步
+        query_filter = {"isDeleted": False}
+        if keyword:
+            query_filter["$or"] = [
+                {"name": {"$regex": keyword, "$options": "i"}},
+                {"contractId": {"$regex": keyword, "$options": "i"}},
+                {"contractNo": {"$regex": keyword, "$options": "i"}},
+                {"customer": {"$regex": keyword, "$options": "i"}},
+            ]
+        if category:
+            query_filter["category"] = category
+        if contractType:
+            query_filter["contractType"] = contractType
+        if customerType:
+            query_filter["customerType"] = customerType
+        if status:
+            query_filter["status"] = status
+        if minAmount is not None or maxAmount is not None:
+            amount_filter = {}
+            if minAmount is not None:
+                amount_filter["$gte"] = minAmount
+            if maxAmount is not None:
+                amount_filter["$lte"] = maxAmount
+            query_filter["amount"] = amount_filter
 
-# 1. 获取合同列表 (支持增删改查中的“查”)
+        # 2. 统计当前筛选条件下的：符合要求的合同总数量、总金额、已归档数量
+        # 管理员看真实总数，访客默认写死限制（保持你原本的访客逻辑）
+        if role == "admin":
+            total_count = await contract_collection.count_documents(query_filter)
+            
+            # 利用 MongoDB 聚合直接算出：销售总额
+            pipeline_amount = [{"$match": query_filter}, {"$group": {"_id": None, "total": {"$sum": "$amount"}}}]
+            amount_res = await contract_collection.aggregate(pipeline_amount).to_list(length=1)
+            total_amount = amount_res[0]["total"] if amount_res else 0
+
+            # 算已归档数量
+            archived_filter = {**query_filter, "status": "已签署"}
+            archived_count = await contract_collection.count_documents(archived_filter)
+        else:
+            # 访客模式下的写死兜底
+            total_count = 2
+            total_amount = 50000.0
+            archived_count = 1
+
+        # 3. 🧠 降维打击核心：让 MongoDB 直接在底层按产品类别分组（Group）计数
+        pipeline_category = [
+            {"$match": query_filter},
+            {"$group": {"_id": "$category", "count": {"$sum": 1}}}
+        ]
+        category_cursor = contract_collection.aggregate(pipeline_category)
+        category_rows = await category_cursor.to_list(length=100)
+        
+        # 将聚合出来的结果转化为前端 Chart.js 最喜欢的扁平化字典：{"计算机设备": 3, "办公用品": 2}
+        category_stats_map = {row["_id"]: row["count"] for row in category_rows if row["_id"]}
+
+        # 4. 只返回高精、轻量级的统计账本
+        return {
+            "totalCount": total_count,
+            "totalAmount": total_amount,
+            "archivedCount": archived_count,
+            "categoryStats": category_stats_map
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"看板数据渲染失败: {str(e)}")
+
+
+# 2. 获取合同详细信息 (支持增删改查中的“查”)
 @router.get("/contracts")
 async def get_contracts(
     role: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    size: int = Query(10, ge=1),
+    size: int = Query(100, ge=1),
     keyword: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
     contractType: Optional[str] = Query(None),
@@ -142,7 +221,7 @@ async def get_contracts(
             "total": 2  # 强制让前端分页器知道访客只有 2 条，无法翻页
         }
 
-# 2. 合同上传与文件保存 (支持“增”)
+# 3. 合同上传与文件保存 (支持“增”)
 @router.post("/contracts/upload")
 async def upload_contract(
     # 1. 必填字段 (必须和前端 formData.append 的第一个参数完全一致)
@@ -228,7 +307,7 @@ async def upload_contract(
         return {"status": "error", "message": str(e)}
     
 
-# 3. 合同更新 (支持“改”)
+# 4. 合同更新 (支持“改”)
 @router.put("/contracts/{contract_id}")
 async def update_contract(
     contract_id: str,
@@ -307,7 +386,7 @@ async def update_contract(
         raise HTTPException(status_code=500, detail=f"服务器内部修改失败: {str(e)}")
     
 
-# 4. 数据逻辑删除 (前端不再显示，但数据仍在数据库中)
+# 5. 数据逻辑删除 (前端不再显示，但数据仍在数据库中)
 @router.delete("/contracts/{contract_id}")
 async def delete_contract(contract_id: str):
     try:
@@ -332,7 +411,7 @@ async def delete_contract(contract_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# 5. 批量打包下载合同附件 (Zip)
+# 6. 批量打包下载合同附件 (Zip)
 @router.get("/contracts/batch-download")
 async def batch_download_contracts(
     contract_ids: List[str] = Query(...)
@@ -396,7 +475,7 @@ async def batch_download_contracts(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"批量打包失败: {str(e)}")
 
-# 6. 附件下载
+# 7. 附件下载
 @router.get("/contracts/file/{file_name}")
 async def download_contract_file(file_name: str):
     try:
