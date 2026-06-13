@@ -746,43 +746,55 @@ const handleDelete = async (row) => {
 
 // 单独下载附件
 const handleDownload = async (row) => {
-  // 使用数据库中存储的 fileUrl 路径直接下载（fileUrl 格式为 /api/contracts/file/{实际文件名}）
-  if (!row.fileUrl) {
-    ElMessage.error('该合同没有关联的电子文件');
+  // 🌟 核心改动：不再依赖可能错位的 fileUrl，直接用绝对唯一的 contractId 驱动下载
+  if (!row.contractId) {
+    ElMessage.error('该合同数据没有关联的唯一编号(contractId)');
     return;
   }
 
   try {
-    ElMessage.info('正在获取合同文件...');
-    const response = await fetch(`http://localhost:9080${row.fileUrl}`);
+    ElMessage.info('正在从 NAS 获取合同文件...');
+
+    // 🌟 核心防坑：动态获取当前浏览器的协议 (http/https) 和主机 IP/域名
+    // 完美解决在群晖外网穿透（HTTPS）访问时，请求 http://localhost:9080 被浏览器拦截下载的问题
+    const currentHost = window.location.hostname;
+    const protocol = window.location.protocol;
+    
+    // 🌟 路径对齐：严格对应后端刚改好的新路由 /api/contracts/download-by-id/{contract_id}
+    const downloadApiUrl = `${protocol}//${currentHost}:9080/api/contracts/download-by-id/${row.contractId}`;
+    
+    // 发起异步请求
+    const response = await fetch(downloadApiUrl);
     
     if (response.status === 404) {
-      ElMessage.error('未找到关联的电子合同物理文件');
+      ElMessage.error('后端数据库或文件系统中未找到对应的电子合同文件');
       return;
     }
     if (!response.ok) throw new Error('下载失败');
 
+    // 将后端返回的文件流转换为二进制内存对象 (Blob)
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     
-    // 优先用合同真实名称命名，没有就用编号
+    // 优先用合同真实名称命名，没有就用编号兜底
     const fileKey = row.contractId || row.contractNo || row._id;
     a.download = row.name ? `${row.name}.pdf` : `合同_${fileKey}.pdf`;
+    
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
+    
     ElMessage.success('合同文件下载成功');
   } catch (error) {
-    console.error(error);
-    ElMessage.error('文件下载失败，请检查网络或后端存储');
+    console.error('前端下载逻辑捕获到异常:', error);
+    ElMessage.error('文件下载失败，请检查后端服务或网络配置');
   }
 };
 
 
-//批量下载
 // --- 批量选择与下载逻辑 ---
 const selectedRows = ref([]) // 💡 存放勾选的合同行数据
 
@@ -795,37 +807,51 @@ const handleSelectionChange = (selection) => {
 const handleBatchDownload = async () => {
   if (selectedRows.value.length === 0) return;
 
-  // 💡 核心修复：提取 ID 时，同时兼容新合同的 contractId 和老合同的 contractNo / _id
+  // 1. 提取 ID：优先用唯一 contractId 驱动逻辑
   const contractIds = selectedRows.value.map(row => {
     return row.contractId || row.contractNo || row._id;
   }).filter(Boolean);
   
   if (contractIds.length === 0) {
-    ElMessage.error('选中的合同数据中未包含有效编号');
+    ElMessage.error('选中的合同数据不完整，无法获取文件编号');
     return;
   }
 
   try {
-    ElMessage.info('正在请求后端打包，请稍候...');
+    ElMessage.info('系统正在为您打包文件，请稍候...');
     const params = new URLSearchParams();
     
     // 将兼容后得到的真实 ID 逐个追加到 URL 参数中
     contractIds.forEach(id => params.append('contract_ids', id));
 
-    const response = await fetch(`http://localhost:9080/api/contracts/batch-download?${params.toString()}`);
+    // 动态抓取当前协议（http/https）与当前访问的 IP 或公网域名
+    const currentHost = window.location.hostname;
+    const protocol = window.location.protocol;
     
+    // 组装动态请求路径
+    const batchDownloadUrl = `${protocol}//${currentHost}:9080/api/contracts/batch-download?${params.toString()}`;
+
+    const response = await fetch(batchDownloadUrl);
+    
+    // 🌟 核心修复：面向用户的状态码提示，告别技术术语 🌟
     if (response.status === 404) {
-      ElMessage.error('选中的合同中存在找不到物理文件的项，打包终止');
+      ElMessage.error('未找到对应的合同档案记录，请刷新页面重试');
       return;
     }
-    if (!response.ok) throw new Error('批量打包失败');
+    if (response.status === 400) {
+      // 按照你的要求：不提 NAS，统一话术为数据库，并且通俗易懂
+      ElMessage.error('选中的合同在系统数据库中未找到对应的电子 PDF 文件');
+      return;
+    }
+    if (!response.ok) throw new Error('打包失败');
 
+    // 接收后端 StreamingResponse 返回的二进制 ZIP 文件流
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     
-    // 规范命名
+    // 规范 ZIP 压缩包命名
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     a.download = `合同批量下载_${dateStr}.zip`;
     
@@ -833,10 +859,12 @@ const handleBatchDownload = async () => {
     a.click();
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
-    ElMessage.success(`成功打包并下载 ${contractIds.length} 份合同档案`);
+    
+    ElMessage.success(`成功下载 ${contractIds.length} 份合同档案`);
   } catch (error) {
-    console.error(error);
-    ElMessage.error('批量下载失败，请确认后端服务状态');
+    console.error('批量下载流捕获异常:', error);
+    // 🌟 核心修复：用户看不懂群晖 Container，改成指导他们检查网络或联系管理员 🌟
+    ElMessage.error('下载失败，请检查网络连接或联系系统管理员');
   }
 };
 

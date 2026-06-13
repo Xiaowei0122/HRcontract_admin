@@ -55,7 +55,7 @@
     </el-card>
 
     <footer class="login-footer">
-      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.2.2-release</p>
+      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.3.5-release</p>
     </footer>
 
     <!-- 修改默认密码对话框 -->

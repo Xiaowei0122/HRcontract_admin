@@ -412,7 +412,7 @@ async def delete_contract(contract_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # 6. 批量打包下载合同附件 (Zip)
-@router.get("/contracts/batch-download")
+@router.get("/api/contracts/batch-download")
 async def batch_download_contracts(
     contract_ids: List[str] = Query(...)
 ):
@@ -425,37 +425,52 @@ async def batch_download_contracts(
             ],
             "isDeleted": False
         })
+        # 注意：length 改为真实请求数组长度
         contracts_list = await cursor.to_list(length=len(contract_ids))
         
         if not contracts_list:
             raise HTTPException(status_code=404, detail="未找到任何有效的合同记录")
             
-        # 2. 收集存在的文件
+        # 2. 🌟 核心修复：根据规范，去 UPLOAD_DIR 下精准匹配 file_name 🌟
         files_to_zip = []
         for c in contracts_list:
-            file_path_str = c.get("filePath")
-            file_name = c.get("fileName")
-            if file_path_str and os.path.exists(file_path_str):
-                files_to_zip.append({
-                    "path": Path(file_path_str),
-                    "name": file_name or Path(file_path_str).name,
-                    "contractNo": c.get("contractNo", "")
-                })
+            # 从数据库中取出当初上传成功时写入的真实物理文件名（包含日期和名称的长文件名）
+            db_file_name = c.get("file_name")
+            
+            if db_file_name:
+                # 安全过滤文件名，利用 Path().name 确保不发生目录穿越攻击
+                safe_name = Path(db_file_name).name
+                # 拼接成容器内的绝对物理路径：/app/api/contracts/2026xxxx_测试合同.pdf
+                target_path = (UPLOAD_DIR / safe_name).resolve()
+                
+                # 安全校验：确保文件确实存在于挂载的 NAS 目录下
+                if target_path.exists() and str(target_path).startswith(str(UPLOAD_DIR.resolve())):
+                    files_to_zip.append({
+                        "path": target_path,
+                        # 压缩包里显示的名字，优先用合同本来好听的名字，没有就用长物理名
+                        "display_name": f"{c.get('name', safe_name)}.pdf" if not safe_name.endswith('.pdf') else safe_name,
+                        "contractNo": c.get("contractNo", "未知编号")
+                    })
+                else:
+                    print(f"⚠️ 该文件数据库有记录，但未在文件系统中找到文件: {target_path}")
                 
         if not files_to_zip:
-            raise HTTPException(status_code=400, detail="选中的合同中没有可下载的附件文件")
+            raise HTTPException(status_code=400, detail="选中的合同文件均未在数据库中找到文件，无法打包")
             
         # 3. 在内存中打包成 ZIP
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             existing_names = set()
             for f in files_to_zip:
-                original_name = f["name"]
+                original_name = f["display_name"]
                 archive_name = original_name
+                
+                # 如果不同合同的下载显示名称重名了（例如都叫 采购合同.pdf），用编号区分，防止压缩包内覆盖
                 if archive_name in existing_names:
                     archive_name = f"{f['contractNo']}_{original_name}"
                 existing_names.add(archive_name)
                 
+                # 写入压缩包
                 zip_file.write(f["path"], archive_name)
                 
         zip_buffer.seek(0)
@@ -473,16 +488,41 @@ async def batch_download_contracts(
     except HTTPException as he:
         raise he
     except Exception as e:
+        print(f"❌ 批量打包发生异常: {str(e)}")
         raise HTTPException(status_code=500, detail=f"批量打包失败: {str(e)}")
 
 # 7. 附件下载
-@router.get("/contracts/file/{file_name}")
-async def download_contract_file(file_name: str):
+@router.get("/api/contracts/download-by-id/{contract_id}")
+async def download_contract_by_id(contract_id: str):
     try:
-        safe_name = Path(file_name).name
+        # 1. 🔍 拿着唯一的 contract_id 去 MongoDB 中查找对应的合同数据
+        contract = await contract_collection.find_one({"contractId": contract_id, "isDeleted": False})
+        
+        # 2. 校验合同是否存在，以及当时上传时有没有成功写入 file_name 字段
+        if not contract or not contract.get("file_name"):
+            raise HTTPException(status_code=444, detail="该合同未关联任何文件或文件记录不存在")
+            
+        # 3. 🎯 从数据库直接取出真实的长物理文件名（如 20260613_...pdf）
+        real_file_name = contract["file_name"]
+        
+        # 4. 🦺 依旧维持你原有的高安全性路径防穿越校验
+        safe_name = Path(real_file_name).name
         target_path = (UPLOAD_DIR / safe_name).resolve()
+        
         if not str(target_path).startswith(str(UPLOAD_DIR.resolve())) or not target_path.exists():
             raise FileNotFoundError
-        return FileResponse(target_path, filename=safe_name, media_type="application/octet-stream")
-    except Exception:
-        raise HTTPException(status_code=404, detail="文件未找到")
+            
+        # 5. 📥 返回文件流，这里的 filename 建议用合同的真实名称，让浏览器下载落盘时更好看
+        download_display_name = f"{contract.get('name', contract_id)}.pdf"
+        
+        return FileResponse(
+            target_path, 
+            filename=download_display_name, 
+            media_type="application/octet-stream"
+        )
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"❌ 下载文件发生异常错误: {str(e)}")
+        raise HTTPException(status_code=404, detail="合同附件文件未找到")
