@@ -34,7 +34,7 @@ contract_collection = database.get_collection("contract")
 # 测试Path(r"\\192.168.1.111\HR_NAS\contracts")
 # 生产环境请替换为/contracts，然后在docker-compose.yml中将/contracts映射到NASdocker容器的挂载目录
 
-UPLOAD_DIR = Path(os.getenv("CONTRACT_UPLOAD_DIR", str(Path(__file__).resolve().parent.parent / "contracts")))
+UPLOAD_DIR = Path(os.getenv("CONTRACT_UPLOAD_DIR", str(Path(__file__).resolve().parent.parent / "/contracts")))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # 2. 数据模型

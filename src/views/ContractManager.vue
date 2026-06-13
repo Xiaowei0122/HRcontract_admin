@@ -717,7 +717,7 @@ const handleDelete = async (row) => {
   }
 
   try {
-    await ElMessageBox.confirm('确定要永久移出该合同记录及关联物理附件吗？', '系统警告', {
+    await ElMessageBox.confirm('确定要永久移出该合同及关联附件吗？', '系统警告', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       type: 'warning'
@@ -981,7 +981,7 @@ const fetchTableDataWithFilters = async () => {
       
       // 消成批量提示会话之提供了成功带流 专网阐排源须每一条数据湋是董手一次正优一龍
       ElMessage.success(`筛选成功，共找到 ${totalCount.value} 条合同`);
-      console.log('按条件丢查成功', {total: totalCount.value, currentCount: contracts.value.length})
+      console.log('按条件查找成功', {total: totalCount.value, currentCount: contracts.value.length})
     }
   } catch (error) {
     console.error('API 联动失败:', error)
@@ -1057,7 +1057,7 @@ const initPageData = async () => {
     
     // 2. 💡 关键：配置加载完后，立刻让真正的后端分页去捞第一页的合同数据！
     await fetchTableData()
-    console.log("首屏第一页合同数据加载完成")
+    console.log("合同数据加载完成")
 
   } catch (err) {
     console.error("加载配置或首屏数据失败:", err)
