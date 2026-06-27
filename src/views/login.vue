@@ -40,6 +40,13 @@
             <el-button type="primary" class="submit-btn" @click="handleLogin" :loading="loading">
               立即登录
             </el-button>
+
+            <div style="text-align: center; margin-top: 14px;">
+              <span style="color: #909399; font-size: 13px;">还没有账号？</span>
+              <el-link type="primary" :underline="false" @click="$router.push('/register')">
+                立即注册
+              </el-link>
+            </div>
           </el-form>
         </el-tab-pane>
       </el-tabs>
@@ -55,7 +62,7 @@
     </el-card>
 
     <footer class="login-footer">
-      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.3.5-release</p>
+      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.4.5-release</p>
     </footer>
 
     <!-- 修改默认密码对话框 -->

@@ -1,13 +1,18 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/login.vue'
+import Register from '../views/Register.vue'
 import ContractManager from '../views/ContractManager.vue'
 import SystemSettings from '../views/SystemSettings.vue'
 
 const routes = [
-  { 
+  {
     path: '/login',
-    name: 'Login', 
+    name: 'Login',
     component: Login },
+  {
+    path: '/register',
+    name: 'Register',
+    component: Register },
   { 
     path: '/', 
     name: 'ContractManager', 

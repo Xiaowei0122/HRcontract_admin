@@ -29,6 +29,7 @@ services:
     environment:
       # 💡 容器内网无缝互连
       MONGO_URL: "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin"
+      CONTRACT_UPLOAD_DIR: "/contracts"
     depends_on:
       - mongo-1
     volumes:

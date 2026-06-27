@@ -8,6 +8,7 @@ app = FastAPI(title="鸿瑞办公后端系统")
 @app.on_event("startup")
 async def startup_event():
     await auth.init_admin_user()
+    await settings.init_settings()
 
 # --- 全局跨域配置 (保持原状) ---
 app.add_middleware(

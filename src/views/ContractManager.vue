@@ -22,14 +22,15 @@
     </div>
 
     <div class="nav-actions">
-      <el-button 
-        type="primary" 
+      <el-button
+        type="primary"
         :icon="Plus"
         @click="handleOpenModal()"
-        :disabled="isGuest"
+        :disabled="isGuest || sysConfig.maintenance_mode"
       >
         录入新合同
       </el-button>
+      <el-tag v-if="sysConfig.maintenance_mode" type="danger" size="small" style="margin-left: 8px;">维护模式</el-tag>
       
       <el-divider direction="vertical" />
       <el-button 
@@ -67,7 +68,7 @@
         </el-col>
       </el-row>
 
-      <el-card shadow="never" class="chart-section">
+      <el-card v-if="sysConfig.show_dashboard_charts !== false" shadow="never" class="chart-section">
         <div class="section-header">
           <span class="panel-title"><el-icon><PieChart /></el-icon> 合同分类占比分析</span>
         </div>
@@ -130,7 +131,7 @@
           
           <!-- 金额区间筛选内联 -->
           <div class="amount-inline">
-            <span class="amount-label">合同金额区间(万元)：</span>
+            <span class="amount-label">合同金额区间(元)：</span>
             <el-input-number v-model="filters.minAmount" placeholder="最小值" :min="0" :precision="2" class="amount-input" clearable controls-position="right" />
             <span class="amount-separator">~</span>
             <el-input-number v-model="filters.maxAmount" placeholder="最大值" :min="0" :precision="2" class="amount-input" clearable controls-position="right" />
@@ -152,19 +153,23 @@
               <template v-if="col.key === 'status'">
                 <el-tag :type="statusTagMap[row.status]" size="small">{{ row.status }}</el-tag>
               </template>
-              <template v-else-if="col.key === 'amount'">￥{{ row.amount?.toFixed(2) }}</template>
+              <template v-else-if="col.key === 'amount'">
+                <span :class="{ 'big-amount': sysConfig.big_amount_threshold > 0 && row.amount > sysConfig.big_amount_threshold * 10000 }">
+                  ￥{{ row.amount?.toFixed(2) }}
+                </span>
+              </template>
               <template v-else>{{ row[col.key] || '-' }}</template>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="220" align="center" fixed="right">
             <template #default="{ row }">
               <div class="action-btns">
-                <el-button 
-                  link 
-                  type="primary" 
-                  :icon="EditPen" 
+                <el-button
+                  link
+                  type="primary"
+                  :icon="EditPen"
                   @click="handleOpenModal(row)"
-                  :disabled="isGuest"
+                  :disabled="isGuest || sysConfig.maintenance_mode"
                   class="action-btn"
                 >
                   编辑
@@ -188,11 +193,11 @@
                   cancel-button-text="取消"
                 >
                   <template #reference>
-                    <el-button 
-                      link 
-                      type="danger" 
+                    <el-button
+                      link
+                      type="danger"
                       :icon="Delete"
-                      :disabled="isGuest"
+                      :disabled="isGuest || sysConfig.maintenance_mode"
                       class="action-btn"
                     >
                       删除
@@ -340,7 +345,7 @@
 
         <el-row :gutter="24">
           <el-col :span="12">
-            <el-form-item label="合同金额(万元)">
+            <el-form-item label="合同金额(元)">
               <el-input-number v-model="form.amount" :precision="2" :controls="false" style="width: 100%" />
             </el-form-item>
           </el-col>
@@ -444,8 +449,13 @@ const fileList = ref([])
 // 获取合同数据的核心逻辑
 const fetchTableData = async () => {
   loading.value = true
-  const role = localStorage.getItem('userRole') || 'visitor'
-  
+  let role = localStorage.getItem('userRole') || 'visitor'
+
+  // 🔧 管理员开启「访客全部开放」后，访客以管理员权限拉取全量数据（前端 UI 仍限制编辑）
+  if (role !== 'admin' && sysConfig.guest_full_access) {
+    role = 'admin'
+  }
+
   try {
     // -------------------------------------------------------------
     // 1. 构建参数（大看板统计和底部分页表格公用同一套筛选框参数，保证联动）
@@ -511,10 +521,6 @@ const fetchTableData = async () => {
   }
 }
 
-// 页面挂载时立即获取数据
-onMounted(() => {
-  fetchTableData()
-})
 
 
 // --- 弹窗逻辑整合 ---
@@ -560,7 +566,8 @@ const handleOpenModal = (row = null) => {
     form.contractId = row.contractId || row.contractNo || ''
   } else {
     const now = new Date()
-    const uniqueId = `HT${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}${String(now.getMilliseconds()).padStart(3, '0')}`
+    const prefix = sysConfig.contract_id_prefix || 'HT'
+    const uniqueId = `${prefix}${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}${String(now.getMilliseconds()).padStart(3, '0')}`
 
     Object.assign(form, {
       _id: '',               
@@ -642,17 +649,13 @@ const handleSave = async () => {
     formData.append('remark', form.remark || '');
     formData.append('operator', localStorage.getItem('userRole') || 'admin');
 
-    if (fileList.value.length > 0) {
-      formData.append('file', fileList.value[0].raw);
-    }
-    
     // 💡 健壮修复：全方位拦截任何形式的空值或 "undefined" 伪字符串
     let rawId = '';
     if (form._id && String(form._id).trim() !== 'undefined') {
-      const idStr = typeof form._id === 'object' 
-        ? (form._id.$oid || JSON.stringify(form._id)) 
+      const idStr = typeof form._id === 'object'
+        ? (form._id.$oid || JSON.stringify(form._id))
         : String(form._id);
-      
+
       // 必须符合 24 位 MongoDB ObjectId 规范 (0-9, a-f)
       const match = idStr.match(/[0-9a-fA-F]{24}/);
       rawId = match ? match[0] : '';
@@ -660,6 +663,26 @@ const handleSave = async () => {
 
     // 💡 只有真正拥有 24 位数据库特征 ID 的才判定为编辑修改模式
     const isEdit = !!rawId;
+
+    // 🔧 编辑模式下：如果合同已有文件且用户又选了新文件，弹窗确认是否覆盖
+    let shouldUploadFile = fileList.value.length > 0;
+    if (isEdit && shouldUploadFile && form.fileUrl) {
+      try {
+        await ElMessageBox.confirm(
+          '合同文件已存在，是否更新当前合同文件？',
+          '文件覆盖确认',
+          { confirmButtonText: '是，更新文件', cancelButtonText: '否', type: 'warning' }
+        );
+        // 用户确认 — 继续上传新文件
+      } catch {
+        // 用户取消 — 跳过文件上传
+        shouldUploadFile = false;
+      }
+    }
+
+    if (shouldUploadFile) {
+      formData.append('file', fileList.value[0].raw);
+    }
     
     const url = isEdit 
       ? `http://localhost:9080/api/contracts/${rawId}` 
@@ -872,7 +895,15 @@ const handleBatchDownload = async () => {
 // 翻页组件
 // --- 1. 基础状态 ---
 // --- 翻页组件所需的核心状态 ---
-const sysConfig = reactive({ guest_data_limit: 2 }) 
+const sysConfig = reactive({
+  guest_data_limit: 2,
+  maintenance_mode: false,
+  guest_full_access: false,
+  show_dashboard_charts: true,
+  big_amount_threshold: 100,
+  default_visible_fields: [],
+  contract_id_prefix: 'HT',
+})
 const currentPage = ref(1)
 const pageSize = ref(10)
 const totalCount = ref(0) // 💡 变成响应式变量，由第二步的 fetchTableData 统一赋值
@@ -885,9 +916,11 @@ const displayedTableData = computed(() => {
 })
 
 // --- 统计/筛选/显示逻辑 ---
-const toggleField = (k) => { 
-  const i = visibleFields.value.indexOf(k); 
-  i > -1 ? visibleFields.value.splice(i, 1) : visibleFields.value.push(k); 
+const toggleField = (k) => {
+  const i = visibleFields.value.indexOf(k);
+  i > -1 ? visibleFields.value.splice(i, 1) : visibleFields.value.push(k);
+  // 保存用户偏好到本地，下次进入以用户选择为准
+  localStorage.setItem('visibleFields', JSON.stringify(visibleFields.value));
 }
 const statistics = computed(() => [
   { title: '合同总量', value: contractCount.value, unit: '份', icon: Files, color: '#3b82f6' },
@@ -909,7 +942,7 @@ const allFields = [
   { key: 'contactPhone', label: '联系电话' },
   { key: 'servicePeriod', label: '服务期限' },
   { key: 'signDate', label: '签订日期' },
-  { key: 'amount', label: '合同金额(万元)' },
+  { key: 'amount', label: '合同金额(元)' },
   { key: 'status', label: '状态' },
   { key: 'remark', label: '备注' },
   { key: 'createTime', label: '创建时间' },
@@ -1081,9 +1114,39 @@ const initPageData = async () => {
       const configRes = await response.json()
       Object.assign(sysConfig, configRes)
       console.log("翻页系统配置加载完成")
+
+      // 2. 🔧 读取管理员设定的默认可见字段
+      // 优先级：如果管理员更新了默认配置 → 应用新默认值
+      //         否则：用户本地偏好 > 管理员默认值 > 代码硬编码
+      const serverDefaults = configRes.default_visible_fields || []
+      const userPref = localStorage.getItem('visibleFields')
+      const cachedDefaults = JSON.parse(localStorage.getItem('cachedDefaultFields') || '[]')
+
+      // 检测管理员是否更新了默认字段配置（对比缓存与服务端版本）
+      const defaultsChanged = JSON.stringify([...serverDefaults].sort()) !== JSON.stringify([...cachedDefaults].sort())
+
+      if (defaultsChanged && serverDefaults.length > 0) {
+        // 管理员更新了默认字段 → 全员应用新默认值
+        visibleFields.value = [...serverDefaults]
+        localStorage.setItem('visibleFields', JSON.stringify(serverDefaults))
+        localStorage.setItem('cachedDefaultFields', JSON.stringify(serverDefaults))
+        console.log('🔄 管理员已更新默认显示字段，已同步:', serverDefaults)
+      } else if (userPref) {
+        try {
+          visibleFields.value = JSON.parse(userPref)
+        } catch {
+          if (serverDefaults.length > 0) {
+            visibleFields.value = [...serverDefaults]
+          }
+        }
+      } else if (serverDefaults.length > 0) {
+        // 首次使用：应用管理员设定的默认列
+        visibleFields.value = [...serverDefaults]
+        localStorage.setItem('cachedDefaultFields', JSON.stringify(serverDefaults))
+      }
     }
-    
-    // 2. 💡 关键：配置加载完后，立刻让真正的后端分页去捞第一页的合同数据！
+
+    // 3. 💡 关键：配置加载完后，立刻让真正的后端分页去捞第一页的合同数据！
     await fetchTableData()
     console.log("合同数据加载完成")
 
@@ -1319,4 +1382,14 @@ onMounted(() => {
 .batch-bar { display: flex; justify-content: space-between; background: #f0f7ff; padding: 10px 20px; border-top: 1px solid #e1f0ff; }
 .selection-info span { color: #409eff; font-weight: bold; }
 .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; }
+
+/* 大额合同高亮 */
+.big-amount {
+  color: #f56c6c;
+  font-weight: 700;
+  background: #fef0f0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #fde2e2;
+}
 </style>

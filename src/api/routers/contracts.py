@@ -9,8 +9,9 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
+
+from database import contract_collection, settings_collection, write_log
 
 # 路由配置
 router = APIRouter(
@@ -18,24 +19,24 @@ router = APIRouter(
     tags=["合同管理"]
 )
 
-# 1. 数据库与文件存储配置
-#本地测试修改@地址为 192.168.1.111:32771, 生产环境请替换为 mongo-1:27017，并确保 docker-compose.yml 中的服务名称和端口映射正确
-# 测试
-#MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@192.168.1.111:32771/?authSource=admin")
+# NAS 文件保存路径（推荐使用环境变量 CONTRACT_UPLOAD_DIR 指定）
+# 本地测试：默认使用项目根目录下的 contracts 文件夹
+# 生产环境：docker-compose.yml 中设置 CONTRACT_UPLOAD_DIR=/contracts，映射到 NAS
 
-# 生产
-MONGO_DETAILS = os.getenv("MONGO_URL", "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin")
-
-client = AsyncIOMotorClient(MONGO_DETAILS)
-database = client.HRcontract
-contract_collection = database.get_collection("contract")
-
-# NAS 文件保存路径（推荐使用环境变量，测试时可直接指定 NAS 共享目录）
-# 测试Path(r"\\192.168.1.111\HR_NAS\contracts")
-# 生产环境请替换为/contracts，然后在docker-compose.yml中将/contracts映射到NASdocker容器的挂载目录
-
-UPLOAD_DIR = Path(os.getenv("CONTRACT_UPLOAD_DIR", str(Path(__file__).resolve().parent.parent / "/contracts")))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent  # routers -> api -> src -> 项目根
+UPLOAD_DIR = Path(os.getenv("CONTRACT_UPLOAD_DIR", str(PROJECT_ROOT / "contracts")))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# 读取系统配置中的访客数据限制（默认 2 条）
+async def _get_guest_data_limit() -> int:
+    """从 settings 集合读取 guest_data_limit，读取失败则返回默认值 2"""
+    try:
+        doc = await settings_collection.find_one({"_id": "system_config"})
+        if doc and "guest_data_limit" in doc:
+            return int(doc["guest_data_limit"])
+    except Exception:
+        pass
+    return 2
 
 # 2. 数据模型
 class ContractData(BaseModel):
@@ -114,16 +115,20 @@ async def get_dashboard_stats(
             # 利用 MongoDB 聚合直接算出：销售总额
             pipeline_amount = [{"$match": query_filter}, {"$group": {"_id": None, "total": {"$sum": "$amount"}}}]
             amount_res = await contract_collection.aggregate(pipeline_amount).to_list(length=1)
-            total_amount = amount_res[0]["total"] if amount_res else 0
+            total_amount = amount_res[0]["total"] / 10000 if amount_res else 0
 
             # 算已归档数量
             archived_filter = {**query_filter, "status": "已签署"}
             archived_count = await contract_collection.count_documents(archived_filter)
         else:
-            # 访客模式下的写死兜底
-            total_count = 2
-            total_amount = 50000.0
-            archived_count = 1
+            # 访客模式：从系统设置读取 guest_data_limit，实时联动
+            guest_limit = await _get_guest_data_limit()
+            # 仅统计前 guest_limit 条
+            guest_cursor = contract_collection.find(query_filter).limit(guest_limit)
+            guest_docs = await guest_cursor.to_list(length=guest_limit)
+            total_count = len(guest_docs)
+            total_amount = sum(doc.get("amount", 0) for doc in guest_docs) / 10000
+            archived_count = sum(1 for doc in guest_docs if doc.get("status") == "已签署")
 
         # 3. 🧠 降维打击核心：让 MongoDB 直接在底层按产品类别分组（Group）计数
         pipeline_category = [
@@ -211,14 +216,15 @@ async def get_contracts(
     
     # 【权限控制分支 2】：如果不是 admin（如访客 guest）
     else:
-        # 依然保持你原本的死锁逻辑：总数只有 2 条，数据也只查 2 条
+        # 从系统设置读取 guest_data_limit，实现实时联动
+        guest_limit = await _get_guest_data_limit()
         cursor = contract_collection.find(query_filter).sort("createTime", -1)
-        contracts = await cursor.to_list(length=2)
-        
+        contracts = await cursor.to_list(length=guest_limit)
+
         data = [serialize_doc(c) for c in contracts]
         return {
             "list": data,
-            "total": 2  # 强制让前端分页器知道访客只有 2 条，无法翻页
+            "total": guest_limit  # 强制让前端分页器知道访客只能看到限制条数
         }
 
 # 3. 合同上传与文件保存 (支持“增”)
@@ -284,7 +290,7 @@ async def upload_contract(
             "servicePeriod": servicePeriod,
             "remark": remark,
             "fileUrl": file_url,           # 附件访问路径
-            "fileName": file.filename if file and file.filename else None,
+            "fileName": file_name if file and file.filename else None,  # 存储带时间戳的物理文件名，与磁盘一致
             "filePath": file_path,
             "createTime": now_time,         # 创建时间
             "updateTime": now_time,         # 更新时间
@@ -294,7 +300,11 @@ async def upload_contract(
 
         # --- D. 写入 NAS 数据库 ---
         result = await contract_collection.insert_one(new_doc)
-        
+
+        # 记日志
+        op_user = operator if operator else "admin"
+        await write_log(op_user, f"创建合同：「{name}」({contractId})", "info")
+
         return {
             "status": "success", 
             "message": "同步成功", 
@@ -320,6 +330,7 @@ async def update_contract(
     customer: Optional[str] = Form(None),
     customerType: Optional[str] = Form(None),
     contractType: Optional[str] = Form(None),
+    signingCompany: Optional[str] = Form(None),  # 签署公司 — 必须与前端字段对齐
     contactPerson: Optional[str] = Form(None),
     contactPhone: Optional[str] = Form(None),
     signDate: Optional[str] = Form(None),
@@ -344,6 +355,7 @@ async def update_contract(
             "customer": customer,
             "customerType": customerType,
             "contractType": contractType,
+            "signingCompany": signingCompany,  # 签署公司 — 修复编辑时无法同步
             "contactPerson": contactPerson,
             "contactPhone": contactPhone,
             "signDate": signDate,
@@ -354,19 +366,27 @@ async def update_contract(
         }
 
         # 3. 处理文件上传（如果用户在编辑时重新选了新文件）
-        if file:
-            filename = file.filename
-            # 使用 contractNo 或 contractId 作为物理文件名，保持磁盘存储整洁
-            use_no = contractNo if contractNo else contractId
-            safe_name = f"{use_no}.pdf"
-            
-            file_path = UPLOAD_DIR / safe_name
+        if file and file.filename:
+            # 🔧 先查旧合同是否有物理文件，有则删除，避免 NAS 空间膨胀
+            existing = await contract_collection.find_one({"_id": ObjectId(contract_id)})
+            if existing and existing.get("filePath"):
+                old_path = Path(existing["filePath"])
+                if old_path.exists():
+                    old_path.unlink()
+                    print(f"🗑️ 已删除旧物理文件: {old_path}")
+
+            original_filename = file.filename
+            # 使用时间戳前缀保证物理文件名唯一，与上传逻辑保持一致
+            file_name = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{Path(original_filename).name}"
+
+            file_path = UPLOAD_DIR / file_name
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
-                
-            # 将新的文件路径和名称同步进更新字典里
-            update_data["path"] = str(file_path)
-            update_data["name"] = filename
+
+            # 将新的文件路径和名称同步进更新字典里（字段名必须与上传时一致）
+            update_data["filePath"] = str(file_path)
+            update_data["fileName"] = file_name
+            update_data["fileUrl"] = f"/api/contracts/file/{file_name}"
 
         # 4. 执行数据库更新操作
         result = await contract_collection.update_one(
@@ -376,6 +396,10 @@ async def update_contract(
 
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="未找到对应的合同记录，修改失败")
+
+        # 记日志
+        op_user = operator if operator else "admin"
+        await write_log(op_user, f"修改合同：「{name}」({contract_id})", "info")
 
         return {"status": "success", "message": "合同数据及附件已成功更新"}
 
@@ -396,13 +420,24 @@ async def delete_contract(contract_id: str):
         else:
             query = {"$or": [{"contractId": contract_id}, {"contractNo": contract_id}]}
         
+        # 🔧 删除前先查物理文件并删除，避免 NAS 空间膨胀
+        contract = await contract_collection.find_one(query)
+        if contract and contract.get("filePath"):
+            old_path = Path(contract["filePath"])
+            if old_path.exists():
+                old_path.unlink()
+                print(f"🗑️ 已删除物理文件: {old_path}")
+
         # 逻辑删除：只标记为已删除，保留历史数据
         result = await contract_collection.update_one(
             query,
             {"$set": {"isDeleted": True, "updateTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}}
         )
-        
+
         if result.matched_count == 1:
+            # 记日志
+            contract_name = contract.get("name", contract_id) if contract else contract_id
+            await write_log("admin", f"删除合同：「{contract_name}」({contract_id})", "warning")
             return {"message": "删除成功"}
         else:
             raise HTTPException(status_code=404, detail="未找到对应的合同记录")
@@ -412,7 +447,7 @@ async def delete_contract(contract_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # 6. 批量打包下载合同附件 (Zip)
-@router.get("/api/contracts/batch-download")
+@router.get("/contracts/batch-download")
 async def batch_download_contracts(
     contract_ids: List[str] = Query(...)
 ):
@@ -435,7 +470,7 @@ async def batch_download_contracts(
         files_to_zip = []
         for c in contracts_list:
             # 从数据库中取出当初上传成功时写入的真实物理文件名（包含日期和名称的长文件名）
-            db_file_name = c.get("file_name")
+            db_file_name = c.get("fileName")
             
             if db_file_name:
                 # 安全过滤文件名，利用 Path().name 确保不发生目录穿越攻击
@@ -475,7 +510,10 @@ async def batch_download_contracts(
                 
         zip_buffer.seek(0)
         
-        # 4. 返回流式响应
+        # 4. 记日志
+        await write_log("admin", f"批量下载了 {len(files_to_zip)} 份合同附件", "info")
+
+        # 5. 返回流式响应
         zip_name = f"contracts_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.zip"
         return StreamingResponse(
             zip_buffer,
@@ -492,18 +530,18 @@ async def batch_download_contracts(
         raise HTTPException(status_code=500, detail=f"批量打包失败: {str(e)}")
 
 # 7. 附件下载
-@router.get("/api/contracts/download-by-id/{contract_id}")
+@router.get("/contracts/download-by-id/{contract_id}")
 async def download_contract_by_id(contract_id: str):
     try:
         # 1. 🔍 拿着唯一的 contract_id 去 MongoDB 中查找对应的合同数据
         contract = await contract_collection.find_one({"contractId": contract_id, "isDeleted": False})
         
-        # 2. 校验合同是否存在，以及当时上传时有没有成功写入 file_name 字段
-        if not contract or not contract.get("file_name"):
+        # 2. 校验合同是否存在，以及当时上传时有没有成功写入 fileName 字段
+        if not contract or not contract.get("fileName"):
             raise HTTPException(status_code=444, detail="该合同未关联任何文件或文件记录不存在")
-            
+
         # 3. 🎯 从数据库直接取出真实的长物理文件名（如 20260613_...pdf）
-        real_file_name = contract["file_name"]
+        real_file_name = contract["fileName"]
         
         # 4. 🦺 依旧维持你原有的高安全性路径防穿越校验
         safe_name = Path(real_file_name).name
