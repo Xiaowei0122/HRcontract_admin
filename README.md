@@ -1,25 +1,26 @@
-# 🏢 鸿瑞办公合同管理系统 - 智链合同 `v1.4.5`
+# 🏢 鸿瑞办公合同管理系统 — 智链合同 `v1.4.6`
 
-> 这是一款面向企业的**数字化合同全生命周期管理平台**，集合同编制、签署、归档、统计分析、文件管理于一体。
+> 一款面向企业的**数字化合同全生命周期管理平台**，集合同编制、签署、归档、统计分析、文件管理于一体。
 
 ---
 
 ## 📋 项目概况
 
 ### 系统简介
-**智链合同**是一个现代化的合同数字管理系统，为企业提供高效、安全的合同生命周期管理解决方案。系统分为**管理员模式**和**访客预览模式**两大用户类型，采用 MongoDB 数据库存储元数据，NAS 存储电子文件，满足不同场景的业务需求。
+**智链合同**是一个现代化的合同数字管理系统，为企业提供高效、安全的合同生命周期管理解决方案。系统支持**管理员**、**普通用户**和**访客**三种角色，采用 **MongoDB** 数据库存储元数据，**NAS** 存储电子文件，满足不同场景的业务需求。
 
 ### 核心功能
-- ✅ **用户认证体系** - 管理员登录、访客无密码进入、安全退出机制
-- 📋 **合同信息管理** - 新增、编辑、删除、查询合同及其完整信息（数据持久化到 MongoDB）
-- 📁 **文件管理** - 支持电子合同文件上传到 NAS、自动识别合同名称、在线预览下载
-- 📊 **可视化分析** - 合同分类占比、金额统计、状态分布图表展示
-- 🔍 **智能搜索与筛选** - 按关键词、状态、客户类型等多维度快速定位
-- 🎯 **字段定制化显示** - 用户可根据需求选择显示/隐藏表格列
-- 👥 **权限管理** - 访客模式仅可查看 2 条预览数据，无编辑权限
-- 📑 **分页管理** - 支持灵活的翻页、页大小调整、排序
-- 💾 **数据持久化** - 使用 MongoDB 存储所有合同信息和文件元数据
-- 📱 **响应式界面** - 现代化 UI 设计，适配多种屏幕尺寸
+- ✅ **用户认证体系** — 管理员登录、用户注册审核、访客无密码进入、安全退出、密码修改
+- 📋 **合同信息管理** — 新增、编辑、删除、查询合同（数据持久化到 MongoDB）
+- 📁 **文件管理** — 支持电子合同文件上传到 NAS、自动识别合同名称、在线预览/下载、批量打包下载
+- 📊 **可视化分析** — 合同分类占比饼图、金额统计、状态分布、大额高亮预警
+- 🔍 **智能搜索与筛选** — 按关键词、分类、状态、客户类型、金额区间等 7 个维度组合筛选
+- 🎯 **字段定制化** — 用户可自定义显示/隐藏表格列，管理员可新增自定义字段
+- 👥 **角色权限** — 三级角色体系（admin / user / viewer），支持禁用/启用、角色变更
+- 📑 **真分页懒加载** — MongoDB 后端分页，支持灵活翻页与页大小调整
+- 🔧 **系统配置面板** — 维护模式、访客数据量、大额阈值、合同ID前缀等 14+ 项动态配置
+- 📝 **操作日志** — 全操作覆盖（登录/注册/合同CRUD/用户管理/配置变更），持久化到 MongoDB
+- 📱 **响应式界面** — 现代化 UI 设计，适配多种屏幕尺寸
 
 ---
 
@@ -27,42 +28,45 @@
 
 ### 前端 (Vue 3 + Vite)
 ```
-框架：Vue 3 with Composition API (Script Setup)
-构建工具：Vite
-UI 组件库：Element Plus
-路由管理：Vue Router
-图表库：Chart.js
-状态管理：localStorage（会话状态）
-网络请求：fetch / axios
+框架：Vue 3.5 (Composition API + `<script setup>`)
+构建工具：Vite 8.0
+UI 组件库：Element Plus 2.13
+路由管理：Vue Router 4.6
+图表库：Chart.js 4.5 + vue-chartjs 5.3
+加密库：CryptoJS 4.2
+Excel 导出：xlsx 0.18
+HTTP 客户端：axios 1.16 + fetch
 ```
 
 ### 后端 (FastAPI + Python)
 ```
-框架：FastAPI
-异步支持：async/await + motor（异步 MongoDB 驱动）
-数据模型：Pydantic BaseModel
-跨域处理：CORSMiddleware
-数据存储：MongoDB（192.168.1.111:32771）
-文件存储：NAS 共享目录（\\192.168.1.111\contracts）
-路由模块化：分离认证、合同、设置等功能
-API 文档：
+框架：FastAPI（异步）
+数据库驱动：motor（异步 MongoDB 驱动）
+数据校验：Pydantic v2
+跨域处理：CORSMiddleware（全局）
+架构模式：Router（薄层）+ Service（业务逻辑）+ Database（共享连接）
 ```
 
 ### 数据库
 ```
 数据库系统：MongoDB
-服务地址：mongodb://admin:Hr85550780@192.168.1.111:32771/?authSource=admin
+测试环境：mongodb://admin:***@192.168.1.111:32768/?authSource=admin
+生产环境：mongodb://admin:***@mongo-1:27017/?authSource=admin
 数据库名：HRcontract
-集合：contract（合同信息），user（用户）
-自动初始化：首次运行时自动连接
+集合：
+  - user         用户账户
+  - contract     合同信息
+  - settings     系统配置
+  - system_logs  操作日志
+自动初始化：首次运行时自动创建管理员账号和默认配置
 ```
 
 ### 文件存储
 ```
 存储系统：群晖 NAS
-存储地址：\\192.168.1.111\contracts
+测试环境：\\192.168.1.111\HR_NAS\contracts
+生产环境：/contracts（Docker 挂载）
 文件管理：后端负责文件读写，MongoDB 存储元数据
-访问方式：Windows 网络共享（需挂载 NAS）
 权限管理：NAS 用户级别权限控制
 ```
 
@@ -72,29 +76,54 @@ API 文档：
 
 ```
 HRcontract_admin/
+├── index.html                           # HTML 入口
+├── vite.config.js                       # Vite 配置
+├── package.json                         # Node.js 依赖
+├── jsconfig.json                        # JS/TS 项目配置（IDE 支持）
+│
 ├── src/
-│   ├── api/
-│   │   ├── routers/
-│   │   │   ├── auth.py              # 认证路由（登录、登出、访客）
-│   │   │   ├── contracts.py         # 合同路由（查询、上传、更新、删除、下载）
-│   │   │   ├── settings.py          # 设置路由
-│   │   │   └── __init__.py
-│   │   ├── main.py                  # FastAPI 应用入口（MongoDB 连接）
-│   │   └── requirements.txt          # Python 依赖清单
-│   ├── views/
-│   │   ├── login.vue                # 登录页面（管理员/访客模式）
-│   │   └── ContractManager.vue      # 合同管理主界面
-│   ├── router/
-│   │   └── index.js                 # 路由配置
-│   ├── assets/                      # 静态资源
-│   ├── App.vue                      # 根组件
-│   ├── main.js                      # Vue 应用入口
-│   └── style.css                    # 全局样式
-├── public/                          # 公共静态文件
-├── index.html                       # HTML 入口
-├── vite.config.js                   # Vite 配置
-├── package.json                     # Node.js 依赖
-└── README.md                        # 项目说明文档
+│   ├── main.js                          # Vue 应用入口
+│   ├── App.vue                          # 根组件
+│   ├── style.css                        # 全局样式
+│   │
+│   ├── views/                           # 页面视图组件
+│   │   ├── login.vue                    # 登录页面（管理员/访客模式 + 修改密码弹窗）
+│   │   ├── Register.vue                 # 用户自助注册页面
+│   │   ├── ContractManager.vue          # 合同管理主界面（看板 + 饼图 + 筛选 + 表格 + 编辑弹窗）
+│   │   └── SystemSettings.vue           # 系统设置页面（参数配置 / 用户管理 / 操作日志）
+│   │
+│   ├── router/                          # 前端路由
+│   │   ├── index.js                     # 路由配置（含路由守卫）
+│   │   ├── auth/
+│   │   │   ├── login.js                 # 登录/退出/访客逻辑 composable
+│   │   │   └── register.js              # 注册逻辑 composable
+│   │   ├── contract/
+│   │   │   └── contractManager.js       # 合同管理业务逻辑 composable
+│   │   └── settings/
+│   │       └── systemSettings.js        # 系统设置业务逻辑 composable
+│   │
+│   ├── api/                             # FastAPI 后端
+│   │   ├── main.py                      # 应用入口（启动初始化、路由挂载、CORS）
+│   │   ├── database.py                  # 共享 MongoDB 连接 + 日志写入
+│   │   ├── requirements.txt             # Python 依赖清单
+│   │   ├── routers/                     # 路由层（薄层 — 参数解析 + 路由注册）
+│   │   │   ├── __init__.py
+│   │   │   ├── auth.py                  # 认证路由（10 个端点）
+│   │   │   ├── contracts.py             # 合同路由（7 个端点）
+│   │   │   └── settings.py              # 设置路由（12 个端点）
+│   │   └── services/                    # 业务逻辑层（Pydantic 模型 + 业务函数）
+│   │       ├── __init__.py
+│   │       ├── shared.py                # 共享工具（访客数据量读取）
+│   │       ├── auth_service.py          # 认证业务逻辑
+│   │       ├── contract_service.py      # 合同 CRUD + 文件处理
+│   │       └── settings_service.py      # 系统配置 + 自定义字段 + 类别/公司管理
+│   │
+│   └── assets/                          # 静态资源（logo、图标）
+│       ├── hero.png
+│       ├── vite.svg
+│       └── vue.svg
+│
+└── public/                              # 公共静态文件
 ```
 
 ---
@@ -104,29 +133,11 @@ HRcontract_admin/
 ### 前置环境要求
 - **Node.js** 16+ 和 npm 8+
 - **Python** 3.8+ 和 pip
-- **MongoDB** 4.0+ 正常运行（192.168.1.111:32771）
-- **NAS 挂载**：将群晖 NAS 共享目录挂载到本地（\\192.168.1.111\contracts）
-- **现代浏览器**（Chrome/Firefox/Edge）
+- **MongoDB** 4.0+ 正常运行
+- **NAS 挂载**：将群晖 NAS 共享目录挂载到本地（或 Docker 映射）
+- **现代浏览器**（Chrome / Firefox / Edge）
 
-### 1️⃣ NAS 配置（重要！）
-
-#### Windows 本地测试
-```powershell
-# 挂载 NAS 共享（用管理员账户）
-net use \\192.168.1.111\contracts /user:admin your_password /persistent:yes
-
-# 验证挂载是否成功
-dir \\192.168.1.111\contracts
-```
-
-#### 部署到群晖 Docker
-```bash
-# 在群晖系统级别先挂载 NAS 共享
-# 然后在 docker run 时挂载该目录到容器
-docker run -v /volume1/contracts:/app/uploads your_image
-```
-
-### 2️⃣ 安装依赖
+### 1️⃣ 安装依赖
 
 #### 前端依赖
 ```bash
@@ -139,200 +150,66 @@ cd src/api
 pip install -r requirements.txt
 ```
 
+### 2️⃣ 配置环境
+
+#### MongoDB 连接
+编辑 `src/api/database.py`，切换 `USE_PRODUCTION` 变量：
+```python
+USE_PRODUCTION = False   # 测试环境（192.168.1.111:32768）
+USE_PRODUCTION = True    # 生产环境（Docker mongo-1:27017）
+```
+或通过环境变量覆盖：`export MONGO_URL="mongodb://..."`
+
+#### NAS 文件存储
+```powershell
+# 测试环境Windows 挂载 NAS
+net use \\192.168.1.111\HR_NAS\contracts /user:admin password /persistent:yes
+
+# 或通过环境变量指定
+export CONTRACT_UPLOAD_DIR="/mnt/nas/contracts"
+```
+
 ### 3️⃣ 启动应用
 
 #### 启动后端（FastAPI）
 ```bash
 cd src/api
 python main.py
-# 或使用 uvicorn 直接运行
-uvicorn main:app --host 127.0.0.1 --port 9080 --reload
+# 后端运行在 http://localhost:9080
+# Swagger 文档：http://localhost:9080/docs
 ```
 
-#### 启动前端（Vue 3 + Vite）
+#### 启动前端（Vite）
 ```bash
 npm run dev
-# 默认访问：http://localhost:5173
+# 前端运行在 http://localhost:5173
 ```
 
-### 4️⃣ 验证系统运行
+### 4️⃣ 验证系统
 
-#### 访问应用
 - **前端地址**：http://localhost:5173
+- **后端 Swagger**：http://localhost:9080/docs
+- **管理员登录**：`admin` / `admin`
+- **访客模式**：点击"访客模式直接进入"
 
-#### 测试登录
-- 管理员账号：`admin`，密码：`admin` 
-- 或点击"访客模式直接进入"（不需要账号密码）
-
-### 5️⃣ 开发构建
+### 5️⃣ 生产构建
 ```bash
-npm run build    # 生产环境打包
-npm run preview  # 预览打包结果
+npm run build        # 生产环境打包
+npm run preview      # 预览打包结果
 ```
 
 ---
 
-## 🔐 用户认证说明
+## 🔐 角色权限体系
 
-### 管理员登录
-- **默认账号**：`admin`
-- **默认密码**：`123456`
-- **权限**：完全的增删改查权限
+| 角色 | 查看 | 新增 | 编辑 | 删除 | 下载 | 系统设置 |
+|------|------|------|------|------|------|----------|
+| admin（管理员） | ✅ 全部 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| user（普通用户） | ✅ 全部 | ✅ | ✅ | ✅(可配置) | ✅ | ❌ |
+| viewer（查看者） | ✅ 全部 | ❌ | ❌ | ❌ | ✅ | ❌ |
+| guest（访客） | ✅ N条(可配置) | ❌ | ❌ | ❌ | ✅ | ❌ |
 
-### 访客模式
-- **无需账号密码**，点击"访客模式直接进入"
-- **权限**：仅支持数据查询，无编辑/删除权限
-- **显示标识**：页面右上角显示"访客预览模式"标签
-
----
-
-## 📊 核心 API 接口
-
-### 认证管理
-| 方法 | 路由 | 描述 |
-|------|------|------|
-| POST | `/api/login` | 管理员登录（账号: admin, 密码: 123456） |
-| POST | `/api/logout` | 安全退出（需传入 token） |
-| GET | `/api/guest` | 访客模式直接进入 |
-
-### 合同管理
-| 方法 | 路由 | 描述 |
-|------|------|------|
-| GET | `/api/contracts?role=admin` | 获取合同列表（admin 返回全部，其他返回预览 2 条） |
-| POST | `/api/contracts/upload` | 新建合同并保存到 MongoDB + NAS |
-| PUT | `/api/contracts/{db_id}` | 更新指定合同信息 |
-| DELETE | `/api/contracts/{contract_id}` | 逻辑删除指定合同（标记为已删除） |
-| GET | `/api/contracts/file/{file_name}` | 下载指定合同附件 |
-
----
-
-## 📝 合同数据结构
-
-### 请求体（POST /api/contracts/upload 或 PUT /api/contracts/{db_id}）
-```json
-{
-  "name": "合同名称",
-  "contractNo": "HT-2026-JSJ-001",
-  "contractType": "采购合同",
-  "category": "计算机设备",
-  "customerType": "高校",
-  "customer": "华南理工大学",
-  "contactPerson": "张教授",
-  "contactPhone": "13800000000",
-  "servicePeriod": "2026-01-01 ~ 2027-12-31",
-  "signDate": "2026-03-12",
-  "amount": 128.50,
-  "status": "已签署",
-  "remark": "合同备注信息",
-  "file": "[二进制文件流]"
-}
-```
-
-### 响应体（成功返回）
-```json
-{
-  "status": "success",
-  "message": "同步成功",
-  "contractId": "HT20260507153824844",
-  "db_id": "66d3b4f8c9e4a123456789ab"
-}
-```
-
-### MongoDB 文档结构
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| _id | ObjectId | MongoDB 主键（自动生成） |
-| contractId | String | 合同唯一标识（业务键） |
-| name | String | 合同名称 |
-| contractNo | String | 合同编号 |
-| contractType | String | 合同类型 |
-| category | String | 产品类别 |
-| customerType | String | 客户类别 |
-| customer | String | 客户名称 |
-| contactPerson | String | 联系人 |
-| contactPhone | String | 联系电话 |
-| servicePeriod | String | 服务期限 |
-| signDate | String | 签订日期 |
-| amount | Float | 合同金额（万元） |
-| status | String | 合同状态 |
-| remark | String | 备注 |
-| fileUrl | String | 文件下载链接 `/api/contracts/file/{filename}` |
-| fileName | String | 原始文件名 |
-| filePath | String | NAS 实际文件路径 |
-| createTime | String | 创建时间（YYYY-MM-DD HH:MM:SS） |
-| updateTime | String | 更新时间（YYYY-MM-DD HH:MM:SS） |
-| operator | String | 操作人员 |
-| isDeleted | Boolean | 逻辑删除标记 |
-
----
-
-## 📁 文件管理说明
-
-### 上传流程
-1. 前端选择文件 → 自动识别文件名填充"合同名称"
-2. 前端发送 POST `/api/contracts/upload` 含 FormData（包括文件和合同信息）
-3. 后端接收文件 → 保存到 NAS（`\\192.168.1.111\contracts\{timestamp}_{filename}` 已映射NAS内部路径）
-4. 后端记录文件元数据到 MongoDB（fileUrl、fileName、filePath）
-5. 前端列表中自动显示"下载"按钮
-
-### 下载流程
-1. 前端点击操作列"下载"按钮
-2. 前端请求 GET `/api/contracts/file/{file_name}`
-3. 后端从 NAS 读取文件 → 以附件形式返回给浏览器
-4. 浏览器自动下载文件
-
-### 文件存储位置
-```
-NAS 路径：\\192.168.1.111\contracts\ 已映射NAS内部路径
-文件命名：{timestamp}_{original_filename}
-示例：20260507153824_采购合同.docx
-```
-
-### 文件权限管理
-- NAS 层级权限由群晖系统控制（创建专用用户账号）
-- MongoDB 层级权限由后端认证控制
-- 访客模式可查看但无法下载文件
-
----
-
-## 🎨 主要页面功能
-
-### 登录页面
-- 现代化玻璃态设计
-- 背景渐变装饰圆圈
-- 两种登录模式选择（管理员/访客）
-
-### 合同管理页面
-
-#### 顶部统计卡片
-- 合同总量
-- 累计总金额
-- 已签署合同数
-- 待处理合同数
-
-#### 分类占比分析
-- 圆环图展示各产品类别合同数量占比
-- 实时更新统计数据
-
-#### 高级搜索
-- 按合同名称/编号/客户名称搜索
-- 按状态筛选
-
-#### 字段显示管理
-- 勾选/取消显示表格列
-- 自定义表格展示内容
-
-#### 合同管理表格
-- 支持多列显示（名称、编号、金额、状态等）
-- 操作列包含：
-  - 📝 **编辑**：修改合同信息
-  - 📥 **下载**：下载附件（无附件时禁用显示灰化）
-  - 🗑️ **删除**：逻辑删除合同
-
-#### 翻页功能
-- 支持自定义页大小（5、10、20、50）
-- 实时显示当前数据总数
-- 支持直接跳页
+**注册审核流程**：用户自助注册 → 状态 `pending` → 管理员审核通过 → 状态 `active`
 
 ---
 
@@ -340,326 +217,110 @@ NAS 路径：\\192.168.1.111\contracts\ 已映射NAS内部路径
 
 ### 用户操作流程
 ```
-登录/访客进入 → 查看合同列表 → 搜索/筛选 → 
-(管理员) 新增/编辑合同 → 上传附件 → 保存 → 
-(管理员/访客) 下载附件 → 查看统计分析 → 
-(管理员) 删除合同 → 退出系统
+注册/登录/访客 → 合同列表 → 搜索筛选 →
+  (有权限) 新增/编辑合同 → 上传附件 → 保存 →
+  (有权限) 批量/单个下载 → 查看统计 →
+  (管理员) 系统设置 → 用户管理 → 退出
 ```
 
 ### 新建合同流程
 ```
-前端：点击"录入新合同" → 打开编辑弹窗 → 
-      拖拽/点击选择文件 → 自动识别合同名称 → 
-      填写其他信息 → 点击"保存提交"
-      ↓
-后端：验证必填字段 → 将文件保存到 NAS → 
-      记录元数据到 MongoDB → 返回成功响应
-      ↓
-前端：关闭弹窗 → 刷新表格 → 显示新增的合同
+前端：点击"录入新合同" → 打开编辑弹窗 →
+      选择/拖拽文件 → 自动识别合同名称 →
+      填写表单（含自定义字段） → 保存提交
+       ↓
+后端：验证必填字段 → 文件保存到 NAS →
+      元数据写入 MongoDB → 记录操作日志 → 返回成功
+       ↓
+前端：关闭弹窗 → 刷新列表 → 显示新合同
 ```
 
-### 编辑合同流程
+### 数据流向
 ```
-前端：点击操作列"编辑" → 打开编辑弹窗（预填充数据） → 
-      修改信息/替换附件 → 点击"保存提交"
-      ↓
-后端：验证字段 → 可选保存新附件到 NAS → 
-      更新 MongoDB 记录（不修改 createTime） → 返回成功响应
-      ↓
-前端：关闭弹窗 → 刷新表格 → 显示更新的合同
-```
-
-### 删除合同流程
-```
-前端：点击操作列"删除" → 弹出确认对话框 → 点击"确定"
-      ↓
-后端：将 isDeleted 字段标记为 True → 保存到 MongoDB
-      ↓
-前端：自动刷新列表 → 已删除合同不显示（逻辑删除）
+前端（Vue 3） ← HTTP/fetch → 后端（FastAPI）
+                                  ↓  Router（薄层）
+                                  ↓  Service（业务逻辑）
+                                  ↓  Database（共享连接）
+                            MongoDB 数据库（元数据）
+                            NAS 共享目录（文件数据）
 ```
 
-### 下载附件流程
-```
-前端：点击操作列"下载"按钮（无附件时禁用）
-      ↓
-后端：读取 NAS 文件 → 以附件形式返回
-      ↓
-浏览器：自动下载文件到本地
-```
+---
+
+## 📊 系统配置项
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `guest_data_limit` | integer | 2 | 访客可预览的合同条数 |
+| `maintenance_mode` | boolean | false | 系统维护模式 |
+| `allow_guest_upload` | boolean | false | 访客上传权限 |
+| `guest_full_access` | boolean | false | 访客查看全部合同 |
+| `show_dashboard_charts` | boolean | true | 看板图表显示 |
+| `big_amount_threshold` | number | 100 | 大额合同预警阈值（万元） |
+| `default_visible_fields` | array | [...] | 合同列表默认显示字段 |
+| `max_upload_size_mb` | number | 50 | 文件上传大小限制 |
+| `allowed_file_types` | array | [...] | 允许上传的文件类型 |
+| `session_timeout_minutes` | number | 480 | 会话超时时间 |
+| `contract_id_prefix` | string | "HT" | 合同ID前缀 |
+| `log_retention_days` | number | 90 | 日志保留天数 |
+| `allow_user_delete` | boolean | false | 允许普通用户删除合同 |
 
 ---
 
 ## 🔗 前后端交互说明
 
 ### 跨域配置
-- 后端已配置允许所有来源的请求（开发环境）
-- 生产环境建议在 `src/api/main.py` 中修改 `allow_origins` 为具体的前端地址
+后端已配置全局 CORS，允许所有来源。生产环境建议在 `main.py` 中修改 `allow_origins` 为具体的前端地址。
 
-### 数据流向
-```
-前端（Vue）← 网络请求 → 后端（FastAPI）
-                            ↓
-                      MongoDB 数据库（元数据）
-                            ↓
-                      NAS 共享目录（文件数据）
-```
+### API 接口总览
 
-### 环境变量配置
-```python
-# 后端 contracts.py 中的 NAS 路径配置
-UPLOAD_DIR = Path(os.getenv("CONTRACT_UPLOAD_DIR", r"\\192.168.1.111\contracts"))
-```
+| 模块 | 端点数 | 说明 |
+|------|--------|------|
+| 认证管理 | 10 | 登录、退出、注册、密码修改、访客、用户管理 |
+| 合同管理 | 7 | 看板统计、列表分页、上传、更新、删除、单个/批量下载 |
+| 系统设置 | 12 | 配置读写、字段定义、自定义字段CRUD、类别CRUD、签署公司CRUD、日志 |
 
-部署时可通过设置环境变量修改路径：
-```powershell
-# Windows
-set CONTRACT_UPLOAD_DIR=\\192.168.1.111\contracts
-
-# Linux/Docker
-export CONTRACT_UPLOAD_DIR=/mnt/nas/contracts
-```
-
----
-
-## 🐛 常见问题
-
-### Q: 后端提示"Permission Denied"无法访问 NAS
-**A:** 
-1. 确认 NAS 共享目录已挂载到本地
-2. 确认挂载时使用的账户有读写权限
-3. 运行：`net use \\192.168.1.111\contracts /user:admin password /persistent:yes`
-
-### Q: 文件上传后看不到下载按钮
-**A:**
-1. 检查 fileUrl 是否为空
-2. 查看后端日志是否有文件保存错误
-3. 确认 NAS 路径可访问
-
-### Q: 删除合同后还能看到
-**A:**
-这是正常的逻辑删除行为，合同数据仍在数据库中，只是标记为已删除。如需彻底删除，需要在 MongoDB 中手动清理。
-
-### Q: 翻页后数据显示不对
-**A:**
-刷新页面或重新搜索/筛选。分页基于过滤后的数据集。
-
----
-
-## 📞 支持
-
-如有问题，请查阅：
-- 后端 API 文档：http://localhost:9080/docs
-- 代码注释和类型提示
-- 浏览器开发者工具（F12）查看网络请求
-
----
-
-## 🔧 更新日志
-
-### 2026 年 6 月 5 日
-- ✅ **【BUG FIX】搜索结果不显示问题**
-  - **问题描述**：搜索条件提交后，后端成功返回过滤数据（HTTP 200），但前端表格未更新显示
-  - **根本原因**：`displayedTableData` 计算属性对后端已过滤的数据进行了**二次前端过滤**，导致数据被覆盖
-  - **修复方案**：移除前端的重复过滤逻辑，直接返回后端过滤后的数据
-  - **影响文件**：`src/views/ContractManager.vue` - 第699-707行
-  - **验证**：搜索条件提交后表格立即更新，显示"筛选成功，共找到 X 条合同"提示
-
-### 2026 年 5 月 7 日
-- ✅ 新增"签署公司"（signingCompany）字段，支持下拉选择 3 家公司
-- ✅ 实现高级搜索与多条件过滤功能（7 个可选筛选条件）
-- ✅ 所有筛选条件可选且可组合，支持无条件显示全部数据
-- ✅ 搜索与重置按钮位于筛选行右侧
-
-**最后更新**：2026 年 6 月 27 日
-
----
-
-### 3️⃣ 验证系统运行
-
-#### 访问应用
-- **前端地址**：http://localhost:5173
-- **后端 Swagger 文档**：http://localhost:9080/docs
-- **后端 ReDoc 文档**：http://localhost:9080/redoc
-
-#### 测试登录
-- 管理员账号：`admin`，密码：`123456`
-- 或点击"访客模式直接进入"（不需要账号密码）
-
-### 4️⃣ 开发构建
-```bash
-npm run build    # 生产环境打包
-npm run preview  # 预览打包结果
-```
-
----
-
-## 🔐 用户认证说明
-
-### 管理员登录
-- **默认账号**：`admin`
-- **默认密码**：`123456`
-- **权限**：完全的增删改查权限
-
-### 访客模式
-- **无需账号密码**，点击"访客模式直接进入"
-- **权限**：仅支持数据查询和报表下载，无编辑权限
-- **显示标识**：页面右上角显示"访客预览模式"标签
-
----
-
-## 📊 核心 API 接口
-
-### 认证管理
-| 方法 | 路由 | 描述 |
-|------|------|------|
-| POST | `/api/login` | 管理员登录（账号: admin, 密码: 123456） |
-| POST | `/api/logout` | 安全退出（需传入 token） |
-| GET | `/api/guest` | 访客模式直接进入 |
-
-### 合同管理
-| 方法 | 路由 | 描述 |
-|------|------|------|
-| GET | `/api/contracts?role=admin` | 获取合同列表（admin 返回全部，其他返回预览2条） |
-| POST | `/api/contracts/upload` | 新建合同并保存到数据库 |
-| PUT | `/api/contracts/{id}` | 更新指定ID合同信息 |
-
----
-
-## 📝 合同数据结构
-
-### 请求体（POST /api/contracts/upload 或 PUT /api/contracts/{id}）
-```json
-{
-  "name": "合同名称",
-  "contractNo": "HT-2026-JSJ-001",
-  "contractType": "采购合同",
-  "category": "计算机设备",
-  "customerType": "高校",
-  "customer": "华南理工大学",
-  "contactPerson": "张教授",
-  "contactPhone": "13800000000",
-  "servicePeriod": "2026-01-01 ~ 2027-12-31",
-  "signDate": "2026-03-12",
-  "amount": 128.50,
-  "status": "已签署",
-  "remark": "合同备注信息"
-}
-```
-
-### 响应体（成功返回）
-```json
-{
-  "status": "success",
-  "message": "合同上传成功",
-  "contract": {
-    "id": 1,
-    "name": "合同名称",
-    "contractNo": "HT-2026-JSJ-001",
-    "contractType": "采购合同",
-    "category": "计算机设备",
-    "customerType": "高校",
-    "customer": "华南理工大学",
-    "contactPerson": "张教授",
-    "contactPhone": "13800000000",
-    "servicePeriod": "2026-01-01 ~ 2027-12-31",
-    "signDate": "2026-03-12",
-    "amount": 128.50,
-    "status": "已签署",
-    "remark": "合同备注信息"
-  }
-}
-```
-
-### 数据库表结构
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | INTEGER PK | 自增主键 |
-| name | TEXT | 合同名称 |
-| contractNo | TEXT | 合同编号 |
-| contractType | TEXT | 合同类型 |
-| category | TEXT | 产品类别 |
-| customerType | TEXT | 客户类别 |
-| customer | TEXT | 客户名称 |
-| contactPerson | TEXT | 联系人 |
-| contactPhone | TEXT | 联系电话 |
-| servicePeriod | TEXT | 服务期限 |
-| signDate | TEXT | 签订日期 |
-| amount | REAL | 合同金额 |
-| status | TEXT | 合同状态 |
-| remark | TEXT | 备注 |
-
----
-
-## 🎨 主要页面预览
-
-### 登录页面
-- 现代化玻璃态设计
-- 背景渐变装饰圆圈
-- 两种登录模式选择
-
-### 合同管理页面
-- 实时统计卡片（合同总量、金额、已签署等）
-- 合同分类占比分析圆环图
-- 高级搜索和多字段筛选
-- 动态列显示/隐藏功能
-- 弹窗式新增/编辑表单
-- 文件上传和自动识别
-
----
-
-## 🔄 业务流程
-
-### 用户操作流程
-```
-登录/访客进入 → 查看合同数据 → 筛选/搜索 → 
-(管理员) 编辑/新增 → 填写表单 → 后端保存到数据库 → 
-查看统计分析 → 退出系统
-```
-
-### 数据同步流程
-```
-前端启动 → 获取当前用户角色 → 发送GET /api/contracts?role=xxx → 
-后端查询SQLite数据库 → 返回JSON数据 → 前端渲染表格
-```
-
-### 新建/编辑合同流程
-```
-用户点击"录入新合同" → 打开弹窗 → 填写表单信息 → 点击"保存提交" →
-前端序列化表单数据 → 
-新建：POST /api/contracts/upload 
-编辑：PUT /api/contracts/{id}
-→ 后端验证并保存到数据库 → 返回保存结果 → 前端更新表格 → 关闭弹窗
-```
-
----
-
-## � 前后端交互说明
-
-### 跨域配置
-- 后端已配置允许所有来源的请求（开发环境）
-- 生产环境建议在 `src/api/main.py` 中修改 `allow_origins` 为具体的前端地址
-
-### 数据流向
-```
-前端（Vue） ← 网络请求 → 后端（FastAPI）
-                              ↓
-                        SQLite 数据库
-```
-
-### 环境变量
-- 前端和后端通过硬编码地址通信：`http://localhost:9080`
-- 如需改为其他端口，需同时修改前后端代码
+> 完整 API 接口文档见 [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
 
 ---
 
 ## 🛡️ 安全特性
 
-- ✅ **Token 验证**：退出时传入 Token 确保合法性
-- ✅ **CORS 跨域配置**：仅允许指定域名访问（生产环境需配置）
-- ✅ **访问权限隔离**：访客模式自动禁用编辑按钮
-- ✅ **本地存储加密**：敏感信息存储在 localStorage 中
-- ✅ **SQL 注入防护**：使用参数化查询防止 SQL 注入
-- ⚠️ **备份建议**：生产环境定期备份 `src/api/data/contracts.db`
+- ✅ **Token 验证**：动态 32 位随机令牌，会话级别管理
+- ✅ **密码加密**：SHA256 哈希存储，默认密码检测与强制修改提醒
+- ✅ **角色隔离**：前端路由守卫 + 后端 Token 校验双重保护
+- ✅ **逻辑删除**：合同数据标记删除保留审计记录
+- ✅ **操作日志**：全操作持久化到 MongoDB，支持追溯
+- ✅ **超级管理员保护**：admin 账号不可被删除、禁用、修改角色
+- ✅ **CORS 跨域配置**：可限制允许的源域名
+- ✅ **注册审核**：新用户需管理员审核通过方可登录
+
+---
+
+## 🐛 常见问题
+
+### Q: 后端提示无法连接 MongoDB
+**A:** 检查 `database.py` 中 `MONGO_URL` 是否正确，确认 MongoDB 服务正在运行，网络策略是否放行端口。
+
+### Q: 文件上传后看不到下载按钮
+**A:** 检查 `fileUrl` 是否为空，确认 NAS 路径可访问，查看后端日志是否有文件保存错误。
+
+### Q: 访客模式看到的合同数量不对
+**A:** 数量由系统配置 `guest_data_limit` 动态控制，管理员可在"系统设置 → 参数配置"中调整。
+
+### Q: 注册后无法登录
+**A:** 新注册用户状态为 `pending`，需等待管理员在"系统设置 → 用户管理"中审核通过。
+
+### Q: 删除合同后还能看到
+**A:** 这是逻辑删除，数据保留在数据库，仅标记 `isDeleted: true`。如需物理删除，需在 MongoDB 中手动清理。
+
+---
+
+## 📞 支持
+
+- 后端 Swagger 文档：http://localhost:9080/docs
+- IDE 项目配置：[jsconfig.json](jsconfig.json)
+- 浏览器开发者工具（F12）查看网络请求与前端日志
 
 ---
 
@@ -667,47 +328,22 @@ npm run preview  # 预览打包结果
 
 ### 前端 (package.json)
 ```
-vue@^3.x
-element-plus
-chart.js
-vue-router@4.x
+vue@^3.5.32
+element-plus@^2.13.7
+vue-router@^4.6.4
+chart.js@^4.5.1, vue-chartjs@^5.3.3
+crypto-js@^4.2.0, xlsx@^0.18.5
+axios@^1.16.0
+@vitejs/plugin-vue@^6.0.5, vite@^8.0.4
 ```
 
 ### 后端 (requirements.txt)
 ```
-fastapi
-uvicorn
+fastapi, uvicorn
+motor (异步 MongoDB 驱动)
 pydantic
 python-multipart
 ```
-
-### 数据库
-- SQLite 3（Python 内置，无需额外安装）
-
----
-
-## 🤝 常见问题
-
-**Q: 后端服务无法连接怎么办？**
-A: 确保 FastAPI 服务已在 `http://localhost:9080` 启动，检查终端是否有错误日志。
-
-**Q: 访客模式和管理员模式的区别是什么？**
-A: 访客模式仅可查看前2条数据预览，"新建合同"按钮被禁用，无法进行编辑操作。
-
-**Q: 如何修改默认登录凭证？**
-A: 编辑 `src/api/routers/auth.py` 中 `login()` 函数的用户名和密码验证逻辑。
-
-**Q: 数据保存到哪里了？**
-A: 保存到 `src/api/data/contracts.db`（SQLite 数据库），会自动创建。
-
-**Q: 如何重置数据库？**
-A: 删除 `src/api/data/contracts.db` 文件，重启后端服务会自动重新初始化。
-
-**Q: 支持多用户同时编辑吗？**
-A: 目前支持，但无并发控制机制，建议生产环境加入锁机制或版本控制。
-
-**Q: 前端数据卡顿或不更新？**
-A: 检查浏览器控制台是否有网络请求错误，确认后端返回的数据格式是否正确。
 
 ---
 
@@ -717,45 +353,95 @@ A: 检查浏览器控制台是否有网络请求错误，确认后端返回的�
 
 ---
 
-## 📌 版本更新与bug修复日志
+## 📌 版本更新与 Bug 修复日志
+
+### v1.4.6 (2026-06-29)
+**🔧 开发体验优化 & 框架兼容性修复**
+
+- **[新增] TypeScript/JS 项目配置文件**
+  - 新建 `jsconfig.json`，明确设置 `checkJs: false`，消除 IDE 对 JS 文件的隐式类型检查警告（114 条）
+  - 配置 `moduleResolution: "bundler"` 与 Vite 构建保持一致
+
+- **[兼容性修复] Vue 3.5 + Volar 适配**
+  - 将 `onMounted` 从 composable (`systemSettings.js`) 移至组件 (`SystemSettings.vue`) 顶层调用
+  - 登录页使用 `useTemplateRef('loginRef')` 替代已废弃的 `ref(null)` 模式
+
+- **[BUG FIX] 后端认证逻辑修复（3 项）**
+  - `LogoutData` 中 `token` 和 `username` 改为 Optional，支持访客退出不传参
+  - `logout_user` 增加访客判断：无用户名时直接返回成功，不查询数据库
+  - `set_user_role` 增加超级管理员保护：禁止修改 `admin` 账号的角色
+
+- **影响文件**：`jsconfig.json`(新)、`systemSettings.js`、`SystemSettings.vue`、`login.vue`、`auth_service.py`、`auth.py`
+
+---
 
 ### v1.4.5 (2026-06-27)
 **🔧 数据库连接统一 & 前后端联动修复**
 
 - **[架构重构] MongoDB 连接统一管理**
-  - 新建 `src/api/database.py` 共享连接模块，auth/contracts/settings 三个路由共用同一连接
+  - 新建 `database.py` 共享连接模块，auth / contracts / settings 三个路由共用同一连接
   - 通过 `USE_PRODUCTION = True/False` 一键切换测试/生产环境
   - 支持环境变量 `MONGO_URL` 覆盖默认连接串
 
+- **[新增] 登录注册界面**
+  - 新增 `Register.vue` 用户自助注册页面
+  - 注册后状态为 `pending`，管理员审核通过后方可登录
+  - 管理员可在系统设置中审批、拒绝、删除用户
+
 - **[BUG FIX] 系统设置与合同管理联动修复（5 项）**
   - **默认显示字段同步**：管理员修改默认字段后，所有用户打开合同列表自动同步
-  - **访客数据限制动态读取**：后台 guest_data_limit 从 MongoDB settings 实时读取，不再硬编码为 2
+  - **访客数据限制动态读取**：`guest_data_limit` 从 MongoDB settings 实时读取，不再硬编码为 2
   - **统计图表显隐**：`show_dashboard_charts` 配置实时控制看板图表显示
   - **大额合同高亮**：`big_amount_threshold` 超过阈值的合同金额标红加粗
-  - **合同编号前缀**：`contract_id_prefix` 动态控制新建合同编号前缀，不再硬编码 HT
+  - **合同编号前缀**：`contract_id_prefix` 动态控制新建合同编号前缀
 
 - **[BUG FIX] 操作日志持久化 & 全面覆盖**
-  - 操作日志从本地 localStorage 改为实时写入 MongoDB `system_logs` 集合
-  - 将 `write_log()` 提取到 `database.py` 共享模块，三个路由统一调用
+  - 操作日志从 localStorage 改为实时写入 MongoDB `system_logs` 集合
+  - `write_log()` 提取到 `database.py` 共享模块，三个路由统一调用
   - **新增日志覆盖**：合同创建/编辑/删除/批量下载 + 用户登录/注册/审批/删除/禁用/权限变更
-  - settings.py 系统启动、配置变更、密码修改、字段更新全部记录
+  - 系统启动、配置变更、密码修改、字段更新全部记录
 
-- **[BUG FIX] 维护模式**：开启后禁用合同录入/编辑/删除按钮，页面显示维护模式标签
+- **[新增] 维护模式**：开启后禁用合同录入/编辑/删除按钮，页面显示维护模式标签
 
 - **影响文件**：`database.py`(新)、`settings.py`、`contracts.py`、`auth.py`、`ContractManager.vue`、`SystemSettings.vue`
 
-### 📝 2026 年 6 月 5 日
-- ✅ **【BUG FIX】搜索结果不显示问题**
-  - **根本原因**：`displayedTableData` 计算属性对后端已过滤的数据进行了二次前端过滤  
-  - **修复方案**：移除前端重复过滤逻辑，直接返回后端过滤后的数据
+---
 
 ### v1.2.3-beta (2026-06-02)
 **💡 核心架构升级与性能优化**
-- **[新增] 真·后端分页懒加载**：重构 `FastAPI + MongoDB` 吞吐逻辑，采用底层 `.skip().limit()` 动态切片
-- **[数据解耦] 大盘统计独立化**：引入 `allContractsData` 全量数据源，与表格分页数据完全解耦
-- **[体验优化] 稳定图表重绘动画**：重写 `updateChart` 逻辑，避免翻页时图表被重新绘制
+
+- **[新增] 真·后端分页懒加载**：重构 FastAPI + MongoDB 吞吐逻辑，采用底层 `.skip().limit()` 动态切片
+- **[数据解耦] 大盘统计独立化**：引入全量数据源，与表格分页数据完全解耦
+- **[体验优化] 稳定图表重绘动画**：重写 Chart.js 更新逻辑，避免翻页时图表被重新绘制
 
 **🐛 严重 Bug 修复**
 - **[修复] 清理多余标签报错**：剔除 HTML 模板中冗余的空表格标签，修正 `initPageData` 引用错误
+- **[修复] 跨域问题**：后端全局 CORS 配置缺失导致的前端请求拦截
 
-*上次更新时间：2026年06月27日*
+---
+
+### 📝 2026 年 6 月 5 日
+- ✅ **【BUG FIX】搜索结果不显示问题**
+  - **根本原因**：`displayedTableData` 计算属性对后端已过滤的数据进行了二次前端过滤
+  - **修复方案**：移除前端重复过滤逻辑，直接返回后端过滤后的数据
+
+---
+
+### 📝 历史版本摘要
+
+| 日期 | 版本 | 关键变更 |
+|------|------|----------|
+| 2026-06-13 | — | 修复文件下载和批量下载错误；修复文件存储异常，指定 NAS 固定存储路径 |
+| 2026-06-12 | — | 修复看板渲染逻辑，看板数据轻量获取避免影响分页；MongoDB 改为 Docker 容器地址 |
+| 2026-06-11 | — | 新增合同组合筛选功能（7 维度）；新增批量下载功能；contractId 替换 contractNo |
+| 2026-06-05 | — | 修复大看板数据渲染与主页懒加载；新增后端 API 文档；增强退出功能 |
+| 2026-05-19 | — | 修复跨域问题；增加企业 logo；登录页新增版本号 |
+| 2026-05-18 | — | Docker 前后端容器构建分离；修复网络连接类型配置 |
+| 2026-05-15 | — | Docker 支持；默认管理员密码修改功能；密码修改提示 |
+| 2026-05-07 | v0.4 | 数据库联动；增删改查逻辑；文件上传逻辑实现 |
+| 2026-04-30 | v0.3 | 登录退出逻辑；MongoDB 连接；实际 auth 流程 |
+| 2026-04-23 | v0.2 | API 接口对接；部分功能动态更新 |
+
+---
+
+*最后更新：2026年6月29日*

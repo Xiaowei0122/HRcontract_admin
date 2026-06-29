@@ -13,9 +13,9 @@ const routes = [
     path: '/register',
     name: 'Register',
     component: Register },
-  { 
-    path: '/', 
-    name: 'ContractManager', 
+  {
+    path: '/',
+    name: 'ContractManager',
     component: ContractManager,
     // 路由守卫：未登录跳回登录页
     beforeEnter: (to, from, next) => {
@@ -24,14 +24,14 @@ const routes = [
       else next()
     }
   },
-  { 
-    path: '/system-settings', 
-    name: 'SystemSettings', 
+  {
+    path: '/system-settings',
+    name: 'SystemSettings',
     component: SystemSettings,
-    // 路由守卫：仅管理员可访问
+    // 路由守卫：仅管理员可访问，普通用户跳回首页
     beforeEnter: (to, from, next) => {
       const role = localStorage.getItem('userRole')
-      if (role !== 'admin') next('/login')
+      if (role !== 'admin') next('/')
       else next()
     }
   }

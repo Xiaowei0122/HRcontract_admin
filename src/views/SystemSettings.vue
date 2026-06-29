@@ -84,6 +84,109 @@
                   </div>
                 </el-form-item>
 
+                <el-divider />
+
+                <!-- ── 合同字段管理 ── -->
+                <h3 class="section-title">合同字段管理</h3>
+                <div class="field-mgmt-section">
+                  <div class="field-mgmt-tip">
+                    <el-icon><InfoFilled /></el-icon>
+                    基础字段不可删除，自定义字段可编辑显示名称、类型或删除。新增字段将同步到合同表单和列表。
+                  </div>
+                    <el-table :data="fieldDefinitions" border stripe size="small" style="width: 100%; margin-top: 12px;" :max-height="320">
+                      <el-table-column prop="key" label="字段标识" width="160" />
+                      <el-table-column prop="label" label="显示名称" width="180">
+                        <template #default="{ row }">
+                          <span>{{ row.label }}</span>
+                          <el-tag v-if="row.isCustom" type="warning" size="small" effect="plain" style="margin-left: 6px;">自定义</el-tag>
+                        </template>
+                      </el-table-column>
+                      <el-table-column prop="fieldType" label="字段类型" width="100">
+                        <template #default="{ row }">
+                          <el-tag size="small" :type="row.fieldType === 'number' ? 'danger' : row.fieldType === 'date' ? 'success' : row.fieldType === 'select' ? 'warning' : 'info'">
+                            {{ { text: '文本', number: '数字', date: '日期', select: '下拉' }[row.fieldType] || row.fieldType }}
+                          </el-tag>
+                        </template>
+                      </el-table-column>
+                      <el-table-column label="操作" width="160">
+                        <template #default="{ row }">
+                          <el-button link type="primary" size="small" @click="openEditFieldDialog(row)">
+                            <el-icon><EditPen /></el-icon> 编辑
+                          </el-button>
+                          <el-button v-if="row.isCustom" link type="danger" size="small" @click="handleDeleteField(row)">
+                            <el-icon><Delete /></el-icon> 删除
+                          </el-button>
+                          <span v-else style="color: #c0c4cc; font-size: 12px;">—</span>
+                        </template>
+                      </el-table-column>
+                    </el-table>
+                  <el-button type="primary" :icon="Plus" size="small" style="margin-top: 12px;" @click="openAddFieldDialog">
+                    新增自定义字段
+                  </el-button>
+                </div>
+
+                <el-divider />
+
+                <!-- ── 产品类别管理 ── -->
+                <h3 class="section-title">产品类别管理</h3>
+                <div class="field-mgmt-section">
+                  <div class="field-mgmt-tip">
+                    <el-icon><InfoFilled /></el-icon>
+                    管理合同的产品类别，将同步更新合同管理页饼图分类及右侧图例列表。
+                  </div>
+                  <div class="category-tags" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                    <el-tag
+                      v-for="(cat, idx) in categories"
+                      :key="idx"
+                      :color="categoryColors[cat]"
+                      size="large"
+                      closable
+                      effect="dark"
+                      style="cursor: pointer;"
+                      @close="handleDeleteCategory(idx)"
+                      @click="openEditCatDialog(idx)"
+                    >
+                      {{ cat }}
+                    </el-tag>
+                    <el-button type="primary" :icon="Plus" size="small" @click="openAddCatDialog" plain>
+                      新增类别
+                    </el-button>
+                  </div>
+                </div>
+
+                <el-divider />
+
+                <!-- ── 签署公司管理 ── -->
+                <h3 class="section-title">签署公司管理</h3>
+                <div class="field-mgmt-section">
+                  <div class="field-mgmt-tip">
+                    <el-icon><InfoFilled /></el-icon>
+                    管理合同的签署公司选项，将同步更新合同管理页下拉列表。
+                  </div>
+                  <div class="category-tags" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                    <el-tag
+                      v-for="(company, idx) in signingCompanies"
+                      :key="idx"
+                      type="info"
+                      size="large"
+                      closable
+                      effect="dark"
+                      style="cursor: pointer;"
+                      @close="handleDeleteSignCompany(idx)"
+                      @click="openEditSignCompanyDialog(idx)"
+                    >
+                      {{ company }}
+                    </el-tag>
+                    <el-button type="primary" :icon="Plus" size="small" @click="openAddSignCompanyDialog" plain>
+                      新增签署公司
+                    </el-button>
+                  </div>
+                </div>
+
+                <el-divider />
+
+                <!-- ── 默认显示字段 ── -->
+                <h3 class="section-title">默认显示字段</h3>
                 <el-form-item label="默认显示字段">
                   <div class="field-manager">
                     <div class="field-tip">
@@ -103,6 +206,7 @@
                         class="field-check-item"
                       >
                         {{ f.label }}
+                        <el-tag v-if="f.isCustom" type="warning" size="small" effect="plain" style="margin-left: 4px; font-size: 10px;">自定义</el-tag>
                       </el-checkbox>
                     </el-checkbox-group>
                   </div>
@@ -184,21 +288,30 @@
 
           <!-- ═══════════════ 用户管理 Tab ═══════════════ -->
           <el-tab-pane label="用户管理" name="users">
-            <div style="margin-bottom: 16px;">
+            <div style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
               <el-radio-group v-model="userStatusFilter" @change="fetchUsers" size="small">
                 <el-radio-button label="">全部</el-radio-button>
                 <el-radio-button label="pending">待审核</el-radio-button>
                 <el-radio-button label="active">已通过</el-radio-button>
                 <el-radio-button label="rejected">已拒绝</el-radio-button>
+                <el-radio-button label="disabled">已禁用</el-radio-button>
               </el-radio-group>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 13px; color: #606266;">允许普通用户删除合同：</span>
+                <el-switch
+                  v-model="configForm.allow_user_delete"
+                  active-text="允许" inactive-text="禁止"
+                  @change="saveConfig('allow_user_delete', configForm.allow_user_delete)"
+                />
+              </div>
             </div>
             <el-table :data="userList" border style="width: 100%" v-loading="userLoading">
               <el-table-column prop="username" label="用户名" width="140" />
               <el-table-column prop="realName" label="真实姓名" width="100" />
               <el-table-column prop="role" label="角色" width="80">
                 <template #default="{ row }">
-                  <el-tag :type="row.role === 'admin' ? 'danger' : ''" effect="plain" size="small">
-                    {{ row.role === 'admin' ? '管理员' : '用户' }}
+                  <el-tag :type="roleTagType(row.role)" effect="plain" size="small">
+                    {{ roleLabel(row.role) }}
                   </el-tag>
                 </template>
               </el-table-column>
@@ -212,6 +325,22 @@
               <el-table-column prop="department" label="部门" width="120" />
               <el-table-column prop="phone" label="手机号" width="130" />
               <el-table-column prop="registerTime" label="注册时间" width="160" />
+              <el-table-column prop="createTime" label="创建时间" width="160" />
+              <el-table-column prop="isDisable" label="是否禁用" width="90">
+                <template #default="{ row }">
+                  <el-tag :type="row.isDisable ? 'danger' : 'success'" effect="plain" size="small">
+                    {{ row.isDisable ? '是' : '否' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="currentToken" label="当前Token" width="180" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <span v-if="row.currentToken" :title="row.currentToken" style="font-size: 12px; color: #909399;">
+                    {{ row.currentToken.substring(0, 20) }}{{ row.currentToken.length > 20 ? '...' : '' }}
+                  </span>
+                  <span v-else style="color: #c0c4cc;">—</span>
+                </template>
+              </el-table-column>
               <el-table-column prop="lastLogin" label="最后登录" width="160" />
               <el-table-column label="操作" width="240" fixed="right">
                 <template #default="{ row }">
@@ -219,7 +348,7 @@
                     <el-button link type="success" size="small" @click="handleApprove(row.username, 'approve')">通过</el-button>
                     <el-button link type="danger" size="small" @click="handleApprove(row.username, 'reject')">拒绝</el-button>
                   </template>
-                  <template v-else-if="row.role !== 'admin'">
+                  <template v-else-if="row.username !== 'admin'">
                     <el-button link type="primary" size="small" @click="handleSetRole(row)">权限设置</el-button>
                     <el-button v-if="row.status !== 'disabled'" link type="warning" size="small" @click="handleToggleStatus(row.username, 'disable')">禁用</el-button>
                     <el-button v-else link type="success" size="small" @click="handleToggleStatus(row.username, 'enable')">启用</el-button>
@@ -234,25 +363,94 @@
           <!-- ═══════════════ 操作日志 Tab ═══════════════ -->
           <el-tab-pane label="操作日志" name="logs">
             <div class="log-container">
-              <el-timeline v-if="logs.length > 0">
+              <!-- 日志筛选 -->
+              <div class="log-filter-bar" v-if="logTotal > 0">
+                <el-radio-group v-model="logFilter" size="small" @change="applyLogFilter">
+                  <el-radio-button value="all">全部 ({{ logTotal }})</el-radio-button>
+                  <el-radio-button value="contract">📄 合同</el-radio-button>
+                  <el-radio-button value="user">👤 用户</el-radio-button>
+                  <el-radio-button value="settings">⚙️ 设置</el-radio-button>
+                  <el-radio-button value="system">🖥️ 系统</el-radio-button>
+                </el-radio-group>
+              </div>
+
+              <el-timeline v-if="filteredLogs.length > 0">
                 <el-timeline-item
-                  v-for="(log, index) in logs"
+                  v-for="(log, index) in filteredLogs"
                   :key="index"
                   :timestamp="log.time"
                   :type="log.type || 'info'"
-                  hollow
+                  :hollow="log.type === 'info'"
+                  :color="getLogColor(log)"
                 >
-                  <span class="log-user">{{ log.user }}</span>
-                  <span class="log-action">{{ log.action }}</span>
+                  <div class="log-entry">
+                    <el-tag
+                      :type="getLogTagType(log)"
+                      size="small"
+                      effect="plain"
+                      class="log-category-tag"
+                    >
+                      {{ getLogCategoryLabel(log) }}
+                    </el-tag>
+                    <span class="log-user">{{ log.user }}</span>
+                    <span class="log-action">{{ log.action }}</span>
+                  </div>
                 </el-timeline-item>
               </el-timeline>
-              <el-empty v-else description="暂无操作日志" />
+
+              <div class="log-pagination" v-if="logTotal > logPageSize">
+                <el-pagination
+                  v-model:current-page="logPage"
+                  v-model:page-size="logPageSize"
+                  :total="logTotal"
+                  :page-sizes="[10, 20, 50]"
+                  layout="total, sizes, prev, pager, next, jumper"
+                  background
+                  small
+                  @current-change="handleLogPageChange"
+                  @size-change="handleLogSizeChange"
+                />
+              </div>
+
+              <el-empty v-if="filteredLogs.length === 0" description="暂无操作日志">
+                <template v-if="logFilter !== 'all'">
+                  <el-button type="primary" link @click="logFilter = 'all'">查看全部日志</el-button>
+                </template>
+              </el-empty>
             </div>
           </el-tab-pane>
 
         </el-tabs>
       </el-card>
     </div>
+
+    <!-- ═══════════════ 角色设置对话框 ═══════════════ -->
+    <el-dialog v-model="showRoleDialog" title="设置用户角色" width="460px" :close-on-click-modal="false">
+      <div v-if="roleTargetUser" style="padding: 10px 0;">
+        <p style="margin-bottom: 16px; color: #606266;">
+          用户：<strong>{{ roleTargetUser.username }}</strong>（{{ roleTargetUser.realName }}）
+          &nbsp;→&nbsp; 当前角色：<el-tag :type="roleTagType(roleTargetUser.role)" size="small">{{ roleLabel(roleTargetUser.role) }}</el-tag>
+        </p>
+        <p style="margin-bottom: 10px; font-weight: 600; color: #303133;">选择新角色：</p>
+        <el-radio-group v-model="selectedRole" style="display: flex; flex-direction: column; gap: 12px;">
+          <el-radio
+            v-for="opt in roleOptions"
+            :key="opt.value"
+            :value="opt.value"
+            :disabled="opt.value === roleTargetUser.role"
+            border
+            style="padding: 12px 16px; border-radius: 8px; width: 100%; margin: 0;"
+          >
+            <span style="font-weight: 600;">{{ opt.label.split(' — ')[0] }}</span>
+            <span style="color: #909399; font-size: 12px; margin-left: 8px;">— {{ opt.label.split(' — ')[1] }}</span>
+          </el-radio>
+        </el-radio-group>
+      </div>
+      <template #footer>
+        <el-button @click="showRoleDialog = false">取消</el-button>
+        <el-button type="primary" @click="confirmSetRole" :disabled="selectedRole === roleTargetUser?.role">确认更改</el-button>
+      </template>
+    </el-dialog>
 
     <!-- ═══════════════ 修改密码对话框 ═══════════════ -->
     <el-dialog v-model="showPasswordDialog" title="修改管理员密码" width="420px" :close-on-click-modal="false">
@@ -269,323 +467,102 @@
         <el-button type="primary" @click="handlePasswordUpdate" :loading="pwdLoading">确认修改</el-button>
       </template>
     </el-dialog>
+
+    <!-- ═══════════════ 字段编辑对话框 ═══════════════ -->
+    <el-dialog v-model="showFieldDialog" :title="fieldForm.isEdit ? '编辑字段' : '新增自定义字段'" width="450px" :close-on-click-modal="false">
+      <el-form :model="fieldForm" label-position="top">
+        <el-form-item label="字段标识" v-if="fieldForm.isEdit">
+          <el-input :model-value="fieldForm.key" disabled />
+          <span class="tip-text" style="font-size: 11px;">字段标识创建后不可修改</span>
+        </el-form-item>
+        <el-form-item label="字段标识" v-else>
+          <el-input v-model="fieldForm.key" placeholder="必须以英文命名，如：supplierName" />
+          <span class="tip-text" style="font-size: 11px;">必须以英文字母开头，只能包含英文、数字和下划线</span>
+        </el-form-item>
+        <el-form-item label="显示名称">
+          <el-input v-model="fieldForm.label" placeholder="如：供应商名称" />
+        </el-form-item>
+        <el-form-item label="字段类型">
+          <el-select v-model="fieldForm.fieldType" style="width: 100%">
+            <el-option v-for="opt in fieldTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showFieldDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveField">{{ fieldForm.isEdit ? '保存修改' : '确认新增' }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ═══════════════ 类别编辑对话框 ═══════════════ -->
+    <el-dialog v-model="showCatDialog" :title="catForm.isEdit ? '编辑产品类别' : '新增产品类别'" width="420px" :close-on-click-modal="false">
+      <el-form :model="catForm" label-position="top">
+        <el-form-item label="类别名称">
+          <el-input v-model="catForm.name" placeholder="如：医疗器械" />
+        </el-form-item>
+        <div v-if="catForm.isEdit && categoryColors[categories[catForm.index]]" class="cat-color-preview" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+          <span style="font-size: 13px; color: #606266;">当前颜色：</span>
+          <span :style="{ width: '32px', height: '20px', borderRadius: '4px', background: categoryColors[categories[catForm.index]], display: 'inline-block' }"></span>
+          <span style="font-size: 12px; color: #909399;">（颜色为系统自动分配）</span>
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="showCatDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveCategory">{{ catForm.isEdit ? '保存修改' : '确认新增' }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ═══════════════ 签署公司编辑对话框 ═══════════════ -->
+    <el-dialog v-model="showSignCompanyDialog" :title="signCompanyForm.isEdit ? '编辑签署公司' : '新增签署公司'" width="420px" :close-on-click-modal="false">
+      <el-form :model="signCompanyForm" label-position="top">
+        <el-form-item label="公司名称">
+          <el-input v-model="signCompanyForm.name" placeholder="如：鸿瑞办公" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showSignCompanyDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveSignCompany">{{ signCompanyForm.isEdit ? '保存修改' : '确认新增' }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { reactive, onMounted, ref } from 'vue'
-import { ArrowLeft, Lock, InfoFilled } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { onMounted } from 'vue'
+import { ArrowLeft, Lock, InfoFilled, EditPen, Delete, Plus } from '@element-plus/icons-vue'
+import { useSystemSettings } from '../router/settings/systemSettings'
 
-const activeTab = ref('config')
-const showPasswordDialog = ref(false)
-const pwdLoading = ref(false)
-const pwdForm = reactive({
-  newPassword: '',
-  confirmPassword: '',
-})
-
-// ── 可用字段列表（从后端获取）──
-const availableFields = ref([])
-
-// ── 系统配置表单：补全所有后端定义的 key ──
-const configForm = reactive({
-  // 权限与预览控制
-  guest_data_limit: 2,
-  maintenance_mode: false,
-  allow_guest_upload: false,
-  guest_full_access: false,
-  // 业务预警与显示
-  show_dashboard_charts: true,
-  big_amount_threshold: 100,
-  default_visible_fields: [],
-  // 文件上传控制
-  max_upload_size_mb: 50,
-  allowed_file_types: 'pdf,doc,docx,xls,xlsx,jpg,png',
-  // 安全与合同编号
-  session_timeout_minutes: 0,
-  contract_id_prefix: 'HT',
-  log_retention_days: 30,
-})
-
-// ── 用户管理状态 ──
-const userList = ref([])
-const userStatusFilter = ref('pending')
-const userLoading = ref(false)
-
-const statusTagType = (status) => {
-  return { pending: 'warning', active: 'success', rejected: 'danger', disabled: 'info' }[status || 'active'] || 'info'
-}
-const statusLabel = (status) => {
-  return { pending: '待审核', active: '已通过', rejected: '已拒绝', disabled: '已禁用' }[status || 'active'] || '已通过'
-}
-
-// ── 操作日志 ──
-const logs = ref([])
-
-// ═════════════════════════════════════════════════════════════
-//  初始化
-// ═════════════════════════════════════════════════════════════
-const fetchInitialData = async () => {
-  try {
-    // 并发拉取：系统配置 + 可用字段 + 操作日志
-    const [configRes, fieldsRes, logRes] = await Promise.all([
-      fetch('http://localhost:9080/api/settings/'),
-      fetch('http://localhost:9080/api/settings/fields'),
-      fetch('http://localhost:9080/api/settings/logs'),
-    ])
-
-    if (configRes.ok) {
-      const data = await configRes.json()
-      // 过滤掉后端内部字段 _id，避免污染 configForm
-      delete data._id
-      Object.assign(configForm, data)
-      console.log('✅ 系统配置已加载:', Object.keys(data).length, '项')
-    } else {
-      console.error('❌ 系统配置加载失败:', configRes.status)
-    }
-
-    if (fieldsRes.ok) {
-      const data = await fieldsRes.json()
-      availableFields.value = data.availableFields || []
-      console.log('✅ 可用字段已加载:', availableFields.value.length, '个')
-    }
-
-    if (logRes.ok) {
-      const logData = await logRes.json()
-      logs.value = Array.isArray(logData) ? logData : []
-      console.log('✅ 操作日志已加载:', logs.value.length, '条')
-    } else {
-      console.error('❌ 操作日志加载失败:', logRes.status)
-      logs.value = []
-    }
-  } catch (err) {
-    console.error('❌ 系统设置初始化失败:', err)
-    ElMessage.error('系统设置初始化失败，请检查后端服务')
-  }
-}
+const {
+  activeTab, showPasswordDialog, pwdLoading, pwdForm,
+  availableFields, configForm,
+  // 字段管理
+  fieldDefinitions, baseFieldKeys, showFieldDialog, fieldForm, fieldTypeOptions,
+  openAddFieldDialog, openEditFieldDialog, handleSaveField, handleDeleteField,
+  // 产品类别管理
+  categories, categoryColors, showCatDialog, catForm,
+  openAddCatDialog, openEditCatDialog, handleSaveCategory, handleDeleteCategory,
+  // 签署公司管理
+  signingCompanies, showSignCompanyDialog, signCompanyForm,
+  openAddSignCompanyDialog, openEditSignCompanyDialog, handleSaveSignCompany, handleDeleteSignCompany,
+  userList, userStatusFilter, userLoading,
+  statusTagType, statusLabel,
+  roleTagType, roleLabel, roleOptions,
+  showRoleDialog, roleTargetUser, selectedRole,
+  logs, logFilter, filteredLogs,
+  logPage, logPageSize, logTotal,
+  getLogColor, getLogTagType, getLogCategoryLabel,
+  applyLogFilter, fetchLogs, handleLogPageChange, handleLogSizeChange,
+  fetchInitialData, fetchUsers,
+  saveConfig, saveDefaultFields,
+  handleApprove, handleDeleteUser, handleToggleStatus,
+  handleSetRole, confirmSetRole,
+  handlePasswordUpdate,
+} = useSystemSettings()
 
 onMounted(() => {
   fetchInitialData()
   fetchUsers()
 })
-
-// ═════════════════════════════════════════════════════════════
-//  配置保存
-// ═════════════════════════════════════════════════════════════
-const saveConfig = async (key, value) => {
-  try {
-    const response = await fetch('http://localhost:9080/api/settings/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, value }),
-    })
-
-    if (response.ok) {
-      ElMessage({ message: '系统配置已实时生效', type: 'success', plain: true })
-      // 刷新日志
-      const logRes = await fetch('http://localhost:9080/api/settings/logs')
-      if (logRes.ok) logs.value = await logRes.json()
-    } else {
-      const err = await response.json()
-      ElMessage.error(err.detail || '配置更新失败')
-    }
-  } catch (err) {
-    ElMessage.error('无法同步至服务器，请检查后端网络')
-  }
-}
-
-// 默认显示字段用专用接口（数组值）
-const saveDefaultFields = async () => {
-  try {
-    const response = await fetch('http://localhost:9080/api/settings/default-fields', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fields: configForm.default_visible_fields }),
-    })
-
-    if (response.ok) {
-      ElMessage({ message: '默认显示字段已更新', type: 'success', plain: true })
-      const logRes = await fetch('http://localhost:9080/api/settings/logs')
-      if (logRes.ok) logs.value = await logRes.json()
-    } else {
-      const err = await response.json()
-      ElMessage.error(err.detail || '字段更新失败')
-    }
-  } catch (err) {
-    ElMessage.error('无法同步至服务器')
-  }
-}
-
-// ═════════════════════════════════════════════════════════════
-//  用户管理方法（保持不变）
-// ═════════════════════════════════════════════════════════════
-const fetchUsers = async () => {
-  const token = localStorage.getItem('token')
-  if (!token) return
-  userLoading.value = true
-  try {
-    const res = await fetch('http://localhost:9080/api/admin/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, status: userStatusFilter.value }),
-    })
-    if (res.ok) {
-      const data = await res.json()
-      userList.value = data.users || []
-    } else if (res.status === 403) {
-      ElMessage.error('管理员权限验证失败，请重新登录')
-    } else {
-      const err = await res.json()
-      ElMessage.error(err.detail || '获取用户列表失败')
-    }
-  } catch (e) {
-    ElMessage.error('无法连接后端，获取用户列表失败')
-  } finally {
-    userLoading.value = false
-  }
-}
-
-const handleApprove = async (username, action) => {
-  const token = localStorage.getItem('token')
-  const label = action === 'approve' ? '通过' : '拒绝'
-  try {
-    await ElMessageBox.confirm(
-      `确认${label}用户「${username}」的注册申请？`,
-      '审批确认',
-      { confirmButtonText: `确认${label}`, cancelButtonText: '取消', type: 'warning' },
-    )
-    const res = await fetch('http://localhost:9080/api/admin/approve-user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, username, action }),
-    })
-    if (res.ok) {
-      ElMessage.success(`已${label}`)
-      fetchUsers()
-    } else {
-      const err = await res.json()
-      ElMessage.error(err.detail || '操作失败')
-    }
-  } catch (e) {
-    if (e !== 'cancel') ElMessage.error('审批操作失败')
-  }
-}
-
-const handleDeleteUser = async (username) => {
-  const token = localStorage.getItem('token')
-  try {
-    await ElMessageBox.confirm(
-      `确定要删除用户「${username}」吗？此操作不可恢复。`,
-      '删除确认',
-      { confirmButtonText: '确认删除', cancelButtonText: '取消', type: 'error' },
-    )
-    const res = await fetch('http://localhost:9080/api/admin/delete-user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, username }),
-    })
-    if (res.ok) {
-      ElMessage.success(`用户 ${username} 已删除`)
-      fetchUsers()
-    } else {
-      const err = await res.json()
-      ElMessage.error(err.detail || '删除失败')
-    }
-  } catch (e) {
-    if (e !== 'cancel') ElMessage.error('删除操作失败')
-  }
-}
-
-const handleToggleStatus = async (username, action) => {
-  const token = localStorage.getItem('token')
-  const label = action === 'disable' ? '禁用' : '启用'
-  try {
-    await ElMessageBox.confirm(
-      `确认${label}用户「${username}」？`,
-      '操作确认',
-      { confirmButtonText: `确认${label}`, cancelButtonText: '取消', type: 'warning' },
-    )
-    const res = await fetch('http://localhost:9080/api/admin/toggle-user-status', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, username, action }),
-    })
-    if (res.ok) {
-      ElMessage.success(`已${label}`)
-      fetchUsers()
-    } else {
-      const err = await res.json()
-      ElMessage.error(err.detail || '操作失败')
-    }
-  } catch (e) {
-    if (e !== 'cancel') ElMessage.error(`${label}操作失败`)
-  }
-}
-
-const handleSetRole = async (row) => {
-  const token = localStorage.getItem('token')
-  const currentRole = row.role
-  const newRole = currentRole === 'admin' ? 'user' : 'admin'
-  const roleLabel = newRole === 'admin' ? '管理员' : '普通用户'
-  try {
-    await ElMessageBox.confirm(
-      `确认将用户「${row.username}」的角色从「${currentRole === 'admin' ? '管理员' : '普通用户'}」改为「${roleLabel}」？`,
-      '权限设置',
-      { confirmButtonText: '确认更改', cancelButtonText: '取消', type: 'warning' },
-    )
-    const res = await fetch('http://localhost:9080/api/admin/set-user-role', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, username: row.username, role: newRole }),
-    })
-    if (res.ok) {
-      ElMessage.success(`用户 ${row.username} 已设为${roleLabel}`)
-      fetchUsers()
-    } else {
-      const err = await res.json()
-      ElMessage.error(err.detail || '操作失败')
-    }
-  } catch (e) {
-    if (e !== 'cancel') ElMessage.error('权限设置失败')
-  }
-}
-
-// 密码修改逻辑
-// 密码修改逻辑
-const handlePasswordUpdate = async () => {
-  if (!pwdForm.newPassword || !pwdForm.confirmPassword) {
-    return ElMessage.warning('请填写新密码')
-  }
-  if (pwdForm.newPassword !== pwdForm.confirmPassword) {
-    return ElMessage.error('两次密码输入不一致')
-  }
-  if (pwdForm.newPassword.length < 6) {
-    return ElMessage.warning('密码长度不能少于6位')
-  }
-
-  pwdLoading.value = true
-  try {
-    const response = await fetch('http://localhost:9080/api/settings/update_password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ new_password: pwdForm.newPassword }),
-    })
-    const res = await response.json()
-    if (response.ok) {
-      ElMessage.success('管理员密码已修改，请妥善保管')
-      showPasswordDialog.value = false
-      pwdForm.newPassword = ''
-      pwdForm.confirmPassword = ''
-    } else {
-      ElMessage.error(res.detail || '密码修改失败')
-    }
-  } catch (err) {
-    ElMessage.error('无法连接服务器，请检查后端网络')
-  } finally {
-    pwdLoading.value = false
-  }
-}
 </script>
 
 <style scoped>
@@ -697,13 +674,68 @@ const handlePasswordUpdate = async () => {
 .log-container {
   padding: 20px 10px;
 }
+
+.log-filter-bar {
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.log-entry {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.log-category-tag {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
 .log-user {
   font-weight: bold;
-  margin-right: 10px;
   color: #409eff;
 }
+
 .log-action {
   color: #606266;
+  line-height: 1.6;
+}
+
+.log-pagination {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0 10px;
+}
+
+/* ── 字段 / 类别管理 ── */
+.field-mgmt-section {
+  margin-top: 4px;
+}
+
+.field-mgmt-tip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #909399;
+  padding: 8px 12px;
+  background: #f0f7ff;
+  border-radius: 6px;
+  border-left: 3px solid #409eff;
+}
+
+.category-tags .el-tag {
+  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: 6px;
+}
+
+.category-tags .el-tag:hover {
+  opacity: 0.85;
+  transform: scale(1.03);
+  transition: all 0.2s;
 }
 
 /* ── 覆盖 Element Tabs 样式 ── */

@@ -1,14 +1,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-# 导入 auth 路由模块
-from routers import auth , contracts, settings
+# 导入路由模块
+from routers import auth, contracts, settings
+# 导入启动初始化函数
+from services.auth_service import init_admin_user
+from services.settings_service import init_settings
 
 app = FastAPI(title="鸿瑞办公后端系统")
 
 @app.on_event("startup")
 async def startup_event():
-    await auth.init_admin_user()
-    await settings.init_settings()
+    await init_admin_user()
+    await init_settings()
 
 # --- 全局跨域配置 (保持原状) ---
 app.add_middleware(
