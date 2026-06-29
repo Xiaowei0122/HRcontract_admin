@@ -9,7 +9,7 @@ from typing import Any, List
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from database import settings_collection, logs_collection, user_collection, write_log
+from database import settings_collection, logs_collection, user_collection, write_log, resolve_display_name
 from services.auth_service import verify_admin_token
 
 # ═══════════════════════════════════════════════════════════════
@@ -37,7 +37,7 @@ AVAILABLE_CONTRACT_FIELDS = [
     {"key": "createTime",   "label": "创建时间"},
     {"key": "updateTime",   "label": "更新时间"},
     {"key": "contractNo",   "label": "合同编号"},
-    {"key": "operator",     "label": "操作人"},
+    {"key": "operator",     "label": "最后操作人"},
 ]
 
 # ── 基础字段 key 集合（不可删除）─────────────────────────────────
@@ -54,6 +54,9 @@ DEFAULT_CATEGORIES = [
 
 # ── 默认签署公司 ─────────────────────────────────────────────────
 DEFAULT_SIGNING_COMPANIES = ["鸿瑞办公", "政通慧采", "众冠供应链"]
+
+# ── 默认客户类别 ─────────────────────────────────────────────────
+DEFAULT_CUSTOMER_TYPES = ["高校", "党政机关", "国企", "央企", "事业单位", "民营企业"]
 
 # ── 默认类别颜色映射（新增类别自动分配颜色）──────────────────────
 CATEGORY_COLOR_POOL = [
@@ -81,6 +84,7 @@ CONFIG_KEY_LABELS = {
     "categories": "产品类别配置",
     "category_colors": "类别颜色映射",
     "signing_companies": "签署公司配置",
+    "customer_types": "客户类别配置",
 }
 
 # ── 系统配置默认值（MongoDB 中无记录时使用）────────────────────
@@ -96,6 +100,7 @@ SYSTEM_CONFIG_DEFAULTS = {
     "default_visible_fields": [
         "contractId", "name", "category", "contractType", "customer",
         "customerType", "signingCompany", "amount", "status", "signDate",
+        "operator",
     ],
     # 文件上传控制
     "max_upload_size_mb": 50,
@@ -111,6 +116,7 @@ SYSTEM_CONFIG_DEFAULTS = {
     "categories": DEFAULT_CATEGORIES,  # 产品类别列表
     "category_colors": {},       # 类别颜色映射（动态生成）
     "signing_companies": DEFAULT_SIGNING_COMPANIES,  # 签署公司列表
+    "customer_types": DEFAULT_CUSTOMER_TYPES,        # 客户类别列表
 }
 
 # ═══════════════════════════════════════════════════════════════
@@ -143,10 +149,12 @@ class CustomFieldUpdate(BaseModel):
 
 class CategoryCreate(BaseModel):
     name: str
+    color: str = ""       # 可选，管理员自选颜色；为空则自动分配
     token: str
 
 class CategoryUpdate(BaseModel):
     name: str
+    color: str = ""       # 可选，为空则保留原颜色不变
     token: str
 
 class SigningCompanyCreate(BaseModel):
@@ -154,6 +162,14 @@ class SigningCompanyCreate(BaseModel):
     token: str
 
 class SigningCompanyUpdate(BaseModel):
+    name: str
+    token: str
+
+class CustomerTypeCreate(BaseModel):
+    name: str
+    token: str
+
+class CustomerTypeUpdate(BaseModel):
     name: str
     token: str
 
@@ -263,7 +279,7 @@ async def get_default_fields():
 # ── 4. 设置默认可见字段 ───────────────────────────────────────
 async def set_default_fields(data: FieldsUpdate):
     """管理员设定合同列表页默认显示哪些列"""
-    await verify_admin_token(data.token)
+    admin = await verify_admin_token(data.token)
     await _save_settings("default_visible_fields", data.fields)
     # 将字段 key 映射为中文标签（查找范围：基础 + 自定义）
     settings = await _load_settings()
@@ -281,20 +297,20 @@ async def set_default_fields(data: FieldsUpdate):
                 break
         if not found:
             field_labels.append(f_key)
-    await write_log("admin", f"调整了合同列表的默认显示列，当前显示：{'、'.join(field_labels)}")
+    await write_log(admin["username"], f"调整了合同列表的默认显示列，当前显示：{'、'.join(field_labels)}")
     return {"status": "success", "message": "默认显示字段已更新"}
 
 
 # ── 5. 更新单个配置项 ─────────────────────────────────────────
 async def update_setting(item: ConfigUpdate):
     """动态更新单个系统配置项，持久化到 MongoDB"""
-    await verify_admin_token(item.token)
+    admin = await verify_admin_token(item.token)
     if item.key not in SYSTEM_CONFIG_DEFAULTS:
         raise HTTPException(status_code=400, detail=f"未定义的配置项: {item.key}")
 
     await _save_settings(item.key, item.value)
     friendly_name = CONFIG_KEY_LABELS.get(item.key, item.key)
-    await write_log("admin", f"修改了系统设置「{friendly_name}」为：{item.value}")
+    await write_log(admin["username"], f"修改了系统设置「{friendly_name}」为：{item.value}")
 
     print(f"⚙️ 系统配置更新: {item.key} -> {item.value}")
     return {"status": "success", "message": f"已更新 {item.key}"}
@@ -302,15 +318,21 @@ async def update_setting(item: ConfigUpdate):
 
 # ── 6. 操作日志（分页）───────────────────────────────────────
 async def get_logs(page: int = 1, pageSize: int = 20):
-    """分页获取系统操作日志，默认每页 20 条"""
+    """分页获取系统操作日志，默认每页 20 条
+
+    自动将旧日志中的原始用户名解析为显示名称（新日志在写入时已包含显示名称）。
+    """
     try:
         total = await logs_collection.count_documents({})
         skip = (page - 1) * pageSize
         cursor = logs_collection.find().sort("time", -1).skip(skip).limit(pageSize)
         logs = await cursor.to_list(length=pageSize)
-        # 去掉 _id
+        # 去掉 _id，并兼容旧日志：将原始用户名解析为显示名称
         for log in logs:
             log.pop("_id", None)
+            # resolve_display_name 对已解析的名称（如"系统管理员"）会原样返回
+            # 对旧日志中的原始用户名（如"admin"、"xiaowei"）会解析为显示名称
+            log["user"] = await resolve_display_name(log["user"])
         return {"logs": logs, "total": total, "page": page, "pageSize": pageSize}
     except Exception as e:
         print(f"❌ 获取日志失败: {e}")
@@ -322,7 +344,7 @@ async def update_admin_password(data: PasswordUpdate):
     """管理员修改自己的密码"""
     import hashlib
 
-    await verify_admin_token(data.token)
+    admin = await verify_admin_token(data.token)
 
     if not data.new_password or len(data.new_password) < 6:
         raise HTTPException(status_code=400, detail="密码长度不能少于6位")
@@ -337,7 +359,7 @@ async def update_admin_password(data: PasswordUpdate):
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="未找到管理员账号")
 
-    await write_log("admin", "管理员密码已被修改", "warning")
+    await write_log(admin["username"], "管理员密码已被修改", "warning")
     return {"status": "success", "message": "管理员密码已修改，请妥善保管"}
 
 
@@ -362,7 +384,7 @@ async def get_field_definitions():
 
 async def add_custom_field(data: CustomFieldCreate):
     """新增自定义合同字段（key 由用户提供，必须以英文命名）"""
-    await verify_admin_token(data.token)
+    admin = await verify_admin_token(data.token)
     settings = await _load_settings()
     custom_fields = list(settings.get("custom_fields", []))
 
@@ -391,13 +413,13 @@ async def add_custom_field(data: CustomFieldCreate):
     new_field = {"key": key, "label": data.label, "fieldType": data.fieldType}
     custom_fields.append(new_field)
     await _save_settings("custom_fields", custom_fields)
-    await write_log("admin", f"新增了自定义字段「{data.label}」（{key}）", "info")
+    await write_log(admin["username"], f"新增了自定义字段「{data.label}」（{key}）", "info")
     return {"status": "success", "field": new_field}
 
 
 async def update_custom_field(field_key: str, data: CustomFieldUpdate):
     """修改自定义字段的显示名称或类型"""
-    await verify_admin_token(data.token)
+    admin = await verify_admin_token(data.token)
     if field_key in BASE_FIELD_KEYS:
         raise HTTPException(status_code=400, detail="基础字段不可修改，只能修改显示名称")
 
@@ -411,14 +433,14 @@ async def update_custom_field(field_key: str, data: CustomFieldUpdate):
             f["label"] = data.label
             f["fieldType"] = data.fieldType
             await _save_settings("custom_fields", custom_fields)
-            await write_log("admin", f"修改了自定义字段「{data.label}」", "info")
+            await write_log(admin["username"], f"修改了自定义字段「{data.label}」", "info")
             return {"status": "success", "field": f}
     raise HTTPException(status_code=404, detail=f"未找到自定义字段: {field_key}")
 
 
 async def delete_custom_field(field_key: str, token: str):
     """删除自定义字段（基础字段不可删除）"""
-    await verify_admin_token(token)
+    admin = await verify_admin_token(token)
     if field_key in BASE_FIELD_KEYS:
         raise HTTPException(status_code=400, detail="基础字段不可删除")
 
@@ -442,7 +464,7 @@ async def delete_custom_field(field_key: str, token: str):
         default_fields.remove(field_key)
         await _save_settings("default_visible_fields", default_fields)
 
-    await write_log("admin", f"删除了自定义字段「{removed['label']}」", "warning")
+    await write_log(admin["username"], f"删除了自定义字段「{removed['label']}」", "warning")
     return {"status": "success", "message": f"字段「{removed['label']}」已删除"}
 
 
@@ -455,16 +477,31 @@ async def get_categories():
     settings = await _load_settings()
     cats = settings.get("categories", DEFAULT_CATEGORIES)
     colors = settings.get("category_colors", {})
-    # 为没有颜色的类别自动分配
-    for i, cat in enumerate(cats):
-        if cat not in colors:
-            colors[cat] = CATEGORY_COLOR_POOL[i % len(CATEGORY_COLOR_POOL)]
+    # 为没有颜色的类别自动分配（使用首个未被占用的颜色，而非 index 取模）
+    changed = False
+    for cat in cats:
+        if cat not in colors or not colors[cat]:
+            colors[cat] = _get_next_color(colors)
+            changed = True
+    # 持久化：确保后续增/删操作不会读取到空的 category_colors 导致前端标签全蓝
+    if changed:
+        await _save_settings("category_colors", colors)
     return {"categories": cats, "categoryColors": colors}
+
+
+def _get_next_color(colors_dict: dict) -> str:
+    """从颜色池中选取第一个未被现有类别占用的颜色"""
+    used = set(v for v in colors_dict.values() if v)
+    for c in CATEGORY_COLOR_POOL:
+        if c not in used:
+            return c
+    # 颜色池耗尽，循环复用
+    return CATEGORY_COLOR_POOL[len(used) % len(CATEGORY_COLOR_POOL)]
 
 
 async def add_category(data: CategoryCreate):
     """新增产品类别"""
-    await verify_admin_token(data.token)
+    admin = await verify_admin_token(data.token)
     settings = await _load_settings()
     cats = list(settings.get("categories", DEFAULT_CATEGORIES))
     colors = dict(settings.get("category_colors", {}))
@@ -474,18 +511,20 @@ async def add_category(data: CategoryCreate):
     if name in cats:
         raise HTTPException(status_code=400, detail="该类别已存在")
     cats.append(name)
-    # 自动分配颜色
-    if name not in colors:
-        colors[name] = CATEGORY_COLOR_POOL[len(cats) % len(CATEGORY_COLOR_POOL)]
+    # 颜色：优先使用管理员自选颜色，否则自动从池中分配首个未占用色
+    if data.color and data.color.strip():
+        colors[name] = data.color.strip()
+    else:
+        colors[name] = _get_next_color(colors)
     await _save_settings("categories", cats)
     await _save_settings("category_colors", colors)
-    await write_log("admin", f"新增了产品类别「{name}」", "info")
+    await write_log(admin["username"], f"新增了产品类别「{name}」", "info")
     return {"status": "success", "categories": cats, "categoryColors": colors}
 
 
 async def update_category(cat_index: int, data: CategoryUpdate):
-    """修改产品类别名称"""
-    await verify_admin_token(data.token)
+    """修改产品类别名称（及可选颜色）"""
+    admin = await verify_admin_token(data.token)
     settings = await _load_settings()
     cats = list(settings.get("categories", DEFAULT_CATEGORIES))
     colors = dict(settings.get("category_colors", {}))
@@ -501,22 +540,25 @@ async def update_category(cat_index: int, data: CategoryUpdate):
     # 迁移颜色
     if old_name in colors:
         colors[new_name] = colors.pop(old_name)
+    # 如果管理员指定了新颜色，覆盖
+    if data.color and data.color.strip():
+        colors[new_name] = data.color.strip()
     await _save_settings("categories", cats)
     await _save_settings("category_colors", colors)
-    await write_log("admin", f"将产品类别「{old_name}」修改为「{new_name}」", "info")
+    await write_log(admin["username"], f"将产品类别「{old_name}」修改为「{new_name}」", "info")
     return {"status": "success", "categories": cats, "categoryColors": colors}
 
 
 async def delete_category(cat_index: int, token: str):
     """删除产品类别"""
-    await verify_admin_token(token)
+    admin = await verify_admin_token(token)
     settings = await _load_settings()
     cats = list(settings.get("categories", DEFAULT_CATEGORIES))
     if cat_index < 0 or cat_index >= len(cats):
         raise HTTPException(status_code=400, detail="无效的类别索引")
     removed = cats.pop(cat_index)
     await _save_settings("categories", cats)
-    await write_log("admin", f"删除了产品类别「{removed}」", "warning")
+    await write_log(admin["username"], f"删除了产品类别「{removed}」", "warning")
     colors = settings.get("category_colors", {})
     return {"status": "success", "categories": cats, "categoryColors": colors}
 
@@ -534,7 +576,7 @@ async def get_signing_companies():
 
 async def add_signing_company(data: SigningCompanyCreate):
     """新增签署公司"""
-    await verify_admin_token(data.token)
+    admin = await verify_admin_token(data.token)
     settings = await _load_settings()
     companies = list(settings.get("signing_companies", DEFAULT_SIGNING_COMPANIES))
     name = data.name.strip()
@@ -544,13 +586,13 @@ async def add_signing_company(data: SigningCompanyCreate):
         raise HTTPException(status_code=400, detail="该公司已存在")
     companies.append(name)
     await _save_settings("signing_companies", companies)
-    await write_log("admin", f"新增了签署公司「{name}」", "info")
+    await write_log(admin["username"], f"新增了签署公司「{name}」", "info")
     return {"status": "success", "signingCompanies": companies}
 
 
 async def update_signing_company(company_index: int, data: SigningCompanyUpdate):
     """修改签署公司名称"""
-    await verify_admin_token(data.token)
+    admin = await verify_admin_token(data.token)
     settings = await _load_settings()
     companies = list(settings.get("signing_companies", DEFAULT_SIGNING_COMPANIES))
     if company_index < 0 or company_index >= len(companies):
@@ -563,18 +605,77 @@ async def update_signing_company(company_index: int, data: SigningCompanyUpdate)
         raise HTTPException(status_code=400, detail="该公司已存在")
     companies[company_index] = new_name
     await _save_settings("signing_companies", companies)
-    await write_log("admin", f"将签署公司「{old_name}」修改为「{new_name}」", "info")
+    await write_log(admin["username"], f"将签署公司「{old_name}」修改为「{new_name}」", "info")
     return {"status": "success", "signingCompanies": companies}
 
 
 async def delete_signing_company(company_index: int, token: str):
     """删除签署公司"""
-    await verify_admin_token(token)
+    admin = await verify_admin_token(token)
     settings = await _load_settings()
     companies = list(settings.get("signing_companies", DEFAULT_SIGNING_COMPANIES))
     if company_index < 0 or company_index >= len(companies):
         raise HTTPException(status_code=400, detail="无效的公司索引")
     removed = companies.pop(company_index)
     await _save_settings("signing_companies", companies)
-    await write_log("admin", f"删除了签署公司「{removed}」", "warning")
+    await write_log(admin["username"], f"删除了签署公司「{removed}」", "warning")
     return {"status": "success", "signingCompanies": companies}
+
+
+# ═══════════════════════════════════════════════════════════════
+#  11. 客户类别管理
+# ═══════════════════════════════════════════════════════════════
+
+async def get_customer_types():
+    """获取客户类别列表"""
+    settings = await _load_settings()
+    types = settings.get("customer_types", DEFAULT_CUSTOMER_TYPES)
+    return {"customerTypes": types}
+
+
+async def add_customer_type(data: CustomerTypeCreate):
+    """新增客户类别"""
+    admin = await verify_admin_token(data.token)
+    settings = await _load_settings()
+    types = list(settings.get("customer_types", DEFAULT_CUSTOMER_TYPES))
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="类别名称不能为空")
+    if name in types:
+        raise HTTPException(status_code=400, detail="该类别已存在")
+    types.append(name)
+    await _save_settings("customer_types", types)
+    await write_log(admin["username"], f"新增了客户类别「{name}」", "info")
+    return {"status": "success", "customerTypes": types}
+
+
+async def update_customer_type(type_index: int, data: CustomerTypeUpdate):
+    """修改客户类别名称"""
+    admin = await verify_admin_token(data.token)
+    settings = await _load_settings()
+    types = list(settings.get("customer_types", DEFAULT_CUSTOMER_TYPES))
+    if type_index < 0 or type_index >= len(types):
+        raise HTTPException(status_code=400, detail="无效的类别索引")
+    old_name = types[type_index]
+    new_name = data.name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="类别名称不能为空")
+    if new_name != old_name and new_name in types:
+        raise HTTPException(status_code=400, detail="该类别已存在")
+    types[type_index] = new_name
+    await _save_settings("customer_types", types)
+    await write_log(admin["username"], f"将客户类别「{old_name}」修改为「{new_name}」", "info")
+    return {"status": "success", "customerTypes": types}
+
+
+async def delete_customer_type(type_index: int, token: str):
+    """删除客户类别"""
+    admin = await verify_admin_token(token)
+    settings = await _load_settings()
+    types = list(settings.get("customer_types", DEFAULT_CUSTOMER_TYPES))
+    if type_index < 0 or type_index >= len(types):
+        raise HTTPException(status_code=400, detail="无效的类别索引")
+    removed = types.pop(type_index)
+    await _save_settings("customer_types", types)
+    await write_log(admin["username"], f"删除了客户类别「{removed}」", "warning")
+    return {"status": "success", "customerTypes": types}

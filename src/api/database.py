@@ -40,17 +40,55 @@ settings_collection = database.get_collection("settings")
 logs_collection = database.get_collection("system_logs")
 
 
+# ── 用户显示名称解析 ──────────────────────────────────────────
+async def resolve_display_name(username: str) -> str:
+    """将用户名解析为面向用户的显示名称（日志、操作人记录等共用）
+
+    解析规则：
+    - system       → 系统
+    - admin        → 系统管理员
+    - 其他管理员角色 → 管理员{真实姓名}
+    - 普通用户     → {真实姓名}
+    - 查不到的用户  → 返回原始 username
+
+    支持同时按 username 和 realName 查找（因为前端可能传入 realName）。
+    """
+    if username == "system":
+        return "系统"
+    if username == "admin":
+        return "系统管理员"
+    try:
+        # 优先按 username 查找，再按 realName 查找
+        user_doc = await user_collection.find_one(
+            {"$or": [{"username": username}, {"realName": username}]}
+        )
+        if user_doc:
+            real_name = user_doc.get("realName", username)
+            role = user_doc.get("role", "")
+            if role == "admin" and user_doc.get("username") != "admin":
+                return f"管理员{real_name}"
+            return real_name
+    except Exception:
+        pass
+    return username  # 解析失败则使用原始值
+
+
 # ── 共享日志写入函数 ────────────────────────────────────────────
 async def write_log(user: str, action: str, log_type: str = "warning") -> None:
-    """写操作日志到 MongoDB system_logs 集合（所有路由共用）"""
+    """写操作日志到 MongoDB system_logs 集合（所有路由共用）
+
+    自动将 username 解析为面向用户的显示名称（通过 resolve_display_name）。
+    """
+    display_name = await resolve_display_name(user)
+
     entry = {
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "user": user,
+        "user": display_name,
         "action": action,
         "type": log_type,
     }
     try:
         await logs_collection.insert_one(entry)
-        print(f"📝 日志已写入: [{log_type}] {user} - {action}")
+        print(f"📝 日志已写入: [{log_type}] {display_name} - {action}")
     except Exception as e:
         print(f"❌ 日志写入失败: {e}")

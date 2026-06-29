@@ -29,7 +29,7 @@
                       :min="0" :max="100"
                       @change="saveConfig('guest_data_limit', configForm.guest_data_limit)"
                     />
-                    <span class="tip-text">设为 0 则访客完全不可见。</span>
+                    <span class="tip-text">设为 0 则访客完全不可见。如开启访客全部开放，则此设置无效。</span>
                   </div>
                 </el-form-item>
 
@@ -137,8 +137,8 @@
                   <div class="category-tags" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
                     <el-tag
                       v-for="(cat, idx) in categories"
-                      :key="idx"
-                      :color="categoryColors[cat]"
+                      :key="cat"
+                      :color="categoryColors[cat] || '#909399'"
                       size="large"
                       closable
                       effect="dark"
@@ -179,6 +179,35 @@
                     </el-tag>
                     <el-button type="primary" :icon="Plus" size="small" @click="openAddSignCompanyDialog" plain>
                       新增签署公司
+                    </el-button>
+                  </div>
+                </div>
+
+                <el-divider />
+
+                <!-- ── 客户类别管理 ── -->
+                <h3 class="section-title">客户类别管理</h3>
+                <div class="field-mgmt-section">
+                  <div class="field-mgmt-tip">
+                    <el-icon><InfoFilled /></el-icon>
+                    管理合同的客户类别选项，将同步更新合同管理页筛选下拉和表单下拉。
+                  </div>
+                  <div class="category-tags" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                    <el-tag
+                      v-for="(ct, idx) in customerTypes"
+                      :key="ct"
+                      type="primary"
+                      size="large"
+                      closable
+                      effect="dark"
+                      style="cursor: pointer;"
+                      @close="handleDeleteCustomerType(idx)"
+                      @click="openEditCustomerTypeDialog(idx)"
+                    >
+                      {{ ct }}
+                    </el-tag>
+                    <el-button type="primary" :icon="Plus" size="small" @click="openAddCustomerTypeDialog" plain>
+                      新增客户类别
                     </el-button>
                   </div>
                 </div>
@@ -290,8 +319,8 @@
           <el-tab-pane label="用户管理" name="users">
             <div style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
               <el-radio-group v-model="userStatusFilter" @change="fetchUsers" size="small">
-                <el-radio-button label="">全部</el-radio-button>
-                <el-radio-button label="pending">待审核</el-radio-button>
+                <el-radio-button value="">全部</el-radio-button>
+                <el-radio-button value="pending">待审核</el-radio-button>
                 <el-radio-button label="active">已通过</el-radio-button>
                 <el-radio-button label="rejected">已拒绝</el-radio-button>
                 <el-radio-button label="disabled">已禁用</el-radio-button>
@@ -406,7 +435,6 @@
                   :page-sizes="[10, 20, 50]"
                   layout="total, sizes, prev, pager, next, jumper"
                   background
-                  small
                   @current-change="handleLogPageChange"
                   @size-change="handleLogSizeChange"
                 />
@@ -495,16 +523,29 @@
     </el-dialog>
 
     <!-- ═══════════════ 类别编辑对话框 ═══════════════ -->
-    <el-dialog v-model="showCatDialog" :title="catForm.isEdit ? '编辑产品类别' : '新增产品类别'" width="420px" :close-on-click-modal="false">
+    <el-dialog v-model="showCatDialog" :title="catForm.isEdit ? '编辑产品类别' : '新增产品类别'" width="440px" :close-on-click-modal="false">
       <el-form :model="catForm" label-position="top">
         <el-form-item label="类别名称">
           <el-input v-model="catForm.name" placeholder="如：医疗器械" />
         </el-form-item>
-        <div v-if="catForm.isEdit && categoryColors[categories[catForm.index]]" class="cat-color-preview" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-          <span style="font-size: 13px; color: #606266;">当前颜色：</span>
-          <span :style="{ width: '32px', height: '20px', borderRadius: '4px', background: categoryColors[categories[catForm.index]], display: 'inline-block' }"></span>
-          <span style="font-size: 12px; color: #909399;">（颜色为系统自动分配）</span>
-        </div>
+        <el-form-item label="类别颜色">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <input
+              type="color"
+              v-model="catForm.color"
+              style="width: 40px; height: 36px; border: 1px solid #dcdfe6; border-radius: 6px; cursor: pointer; padding: 2px;"
+            />
+            <span style="font-size: 13px; color: #606266;">{{ catForm.color }}</span>
+            <el-button size="small" text @click="catForm.color = autoPickColor()" style="font-size: 12px; color: #909399;">
+              自动分配
+            </el-button>
+          </div>
+          <div
+            v-if="catForm.color"
+            style="margin-top: 8px; height: 28px; border-radius: 6px; transition: background 0.2s;"
+            :style="{ background: catForm.color }"
+          ></div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showCatDialog = false">取消</el-button>
@@ -524,6 +565,19 @@
         <el-button type="primary" @click="handleSaveSignCompany">{{ signCompanyForm.isEdit ? '保存修改' : '确认新增' }}</el-button>
       </template>
     </el-dialog>
+
+    <!-- ═══════════════ 客户类别编辑对话框 ═══════════════ -->
+    <el-dialog v-model="showCustTypeDialog" :title="custTypeForm.isEdit ? '编辑客户类别' : '新增客户类别'" width="420px" :close-on-click-modal="false">
+      <el-form :model="custTypeForm" label-position="top">
+        <el-form-item label="类别名称">
+          <el-input v-model="custTypeForm.name" placeholder="如：外资企业" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showCustTypeDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveCustomerType">{{ custTypeForm.isEdit ? '保存修改' : '确认新增' }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -540,10 +594,13 @@ const {
   openAddFieldDialog, openEditFieldDialog, handleSaveField, handleDeleteField,
   // 产品类别管理
   categories, categoryColors, showCatDialog, catForm,
-  openAddCatDialog, openEditCatDialog, handleSaveCategory, handleDeleteCategory,
+  openAddCatDialog, openEditCatDialog, handleSaveCategory, handleDeleteCategory, autoPickColor,
   // 签署公司管理
   signingCompanies, showSignCompanyDialog, signCompanyForm,
   openAddSignCompanyDialog, openEditSignCompanyDialog, handleSaveSignCompany, handleDeleteSignCompany,
+  // 客户类别管理
+  customerTypes, showCustTypeDialog, custTypeForm,
+  openAddCustomerTypeDialog, openEditCustomerTypeDialog, handleSaveCustomerType, handleDeleteCustomerType,
   userList, userStatusFilter, userLoading,
   statusTagType, statusLabel,
   roleTagType, roleLabel, roleOptions,

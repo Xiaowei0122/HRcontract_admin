@@ -60,7 +60,7 @@ const handleLogout = () => {
 
 // --- 基础数据（优先从后端加载，失败则使用默认值）---
 const categories = ref(["计算机设备", "办公用品", "电子产品", "福利产品", "劳保用品", "办公耗材", "网络安防", "维修维护服务"])
-const customerTypes = ["高校", "党政机关", "国企", "央企", "事业单位", "民营企业"]
+const customerTypes = ref(["高校", "党政机关", "国企", "央企", "事业单位", "民营企业"])
 const signingCompanies = ref(["鸿瑞办公", "政通慧采", "众冠供应链"])
 const categoryColorMap = ref({"计算机设备": "#3b82f6","办公用品": "#10b981","电子产品": "#f59e0b", "福利产品": "#ef4444",  "劳保用品": "#f97316",  "办公耗材": "#8b5cf6",  "网络安防": "#06b6d4",  "维修维护服务": "#ec4899"})
 const statusList = ["草稿", "待签署", "已签署", "已终止"]
@@ -405,7 +405,8 @@ const handleDelete = async (row) => {
     });
 
     loading.value = true;
-    const response = await fetch(`http://localhost:9080/api/contracts/${fallbackId}`, {
+    const op = encodeURIComponent(localStorage.getItem('realName') || localStorage.getItem('username') || 'admin');
+    const response = await fetch(`http://localhost:9080/api/contracts/${fallbackId}?operator=${op}`, {
       method: 'DELETE'
     });
 
@@ -504,6 +505,7 @@ const handleBatchDownload = async () => {
 
     // 将兼容后得到的真实 ID 逐个追加到 URL 参数中
     contractIds.forEach(id => params.append('contract_ids', id));
+    params.append('operator', localStorage.getItem('realName') || localStorage.getItem('username') || 'admin');
 
     // 动态抓取当前协议（http/https）与当前访问的 IP 或公网域名
     const currentHost = window.location.hostname;
@@ -607,7 +609,7 @@ const allFields = ref([
   { key: 'createTime', label: '创建时间' },
   { key: 'updateTime', label: '更新时间' },
   { key: 'contractNo', label: '合同编号' },
-  { key: 'operator', label: '操作人'}
+  { key: 'operator', label: '最后操作人'}
 ])
 const activeColumns = computed(() => allFields.value.filter(f => visibleFields.value.includes(f.key)))
 // 自定义字段列表（从 allFields 中过滤 isCustom 标记的）
@@ -720,6 +722,37 @@ const getCatData = (cat, stats) => {
   }
 }
 
+// 图例网格自适应：类别 ≤10 时保持 2 列；超过后自动增加列数、缩小卡片，统计图区域不再撑大
+const legendGridConfig = computed(() => {
+  const count = categories.value.length
+  let columns, sizeClass, gridClass
+
+  if (count <= 10) {
+    columns = 2
+    sizeClass = ''
+    gridClass = ''
+  } else if (count <= 12) {
+    columns = 3
+    sizeClass = 'legend-compact'
+    gridClass = 'legend-gap-sm'
+  } else if (count <= 16) {
+    columns = 4
+    sizeClass = 'legend-dense'
+    gridClass = 'legend-gap-xs'
+  } else {
+    columns = 5
+    sizeClass = 'legend-mini'
+    gridClass = 'legend-gap-xs'
+  }
+
+  return {
+    gridStyle: { gridTemplateColumns: `repeat(${columns}, 1fr)` },
+    cardClass: sizeClass,
+    gridClass,
+    scrollable: count > 16
+  }
+})
+
 // 图表渲染逻辑
 let chartInst = null
 
@@ -808,11 +841,12 @@ const initPageData = async () => {
       }
     }
 
-    // 3. 并发加载：字段定义 + 产品类别 + 签署公司
-    const [fieldsRes, catRes, scRes] = await Promise.all([
+    // 3. 并发加载：字段定义 + 产品类别 + 签署公司 + 客户类别
+    const [fieldsRes, catRes, scRes, ctRes] = await Promise.all([
       fetch('http://localhost:9080/api/settings/fields'),
       fetch('http://localhost:9080/api/settings/categories'),
       fetch('http://localhost:9080/api/settings/signing-companies'),
+      fetch('http://localhost:9080/api/settings/customer-types'),
     ])
     if (fieldsRes.ok) {
       const fData = await fieldsRes.json()
@@ -834,6 +868,13 @@ const initPageData = async () => {
       if (scData.signingCompanies) {
         signingCompanies.value = scData.signingCompanies
         console.log('✅ 签署公司已同步:', signingCompanies.value.length, '个')
+      }
+    }
+    if (ctRes.ok) {
+      const ctData = await ctRes.json()
+      if (ctData.customerTypes) {
+        customerTypes.value = ctData.customerTypes
+        console.log('✅ 客户类别已同步:', customerTypes.value.length, '个')
       }
     }
 
@@ -875,7 +916,7 @@ return {
   filters, filteredData,
   handleSearch, handleResetFilters,
   fetchTableDataWithFilters,
-  getCatData,
+  getCatData, legendGridConfig,
   updateChart,
   initPageData,
 }

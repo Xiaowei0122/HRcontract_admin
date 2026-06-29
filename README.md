@@ -355,6 +355,33 @@ python-multipart
 
 ## 📌 版本更新与 Bug 修复日志
 
+### v1.4.7 (2026-06-29)
+**👤 用户名称统一显示 & 日志即时刷新**
+
+- **[新增] 操作人名称统一解析机制**
+  - 新增 `resolve_display_name()` 函数（`database.py`），自动将原始标识符解析为面向用户的显示名称
+  - **内置 admin** → 显示为「系统管理员」；**其他管理员** → 显示为「管理员XXX」；**普通用户** → 显示真实姓名
+  - `write_log()` 内部自动调用解析，所有日志写入时统一转为显示名称，无需调用方手动处理
+
+- **[修复] 合同操作人字段对齐**
+  - 表头从「操作人」改为「**最后操作人**」
+  - 合同创建/编辑/删除时，`operator` 字段自动解析为显示名称后存入 MongoDB
+  - 删除、批量下载接口新增 `operator` 参数，记录实际操作人身份
+
+- **[修复] 管理员操作日志溯源**
+  - `auth_service.py` / `settings_service.py` 全部 CRUD 函数改为通过 `verify_admin_token()` 获取实际操作管理员
+  - 日志中不再出现硬编码 `admin`，而是显示具体是哪个管理员执行的操作
+
+- **[修复] 操作日志 Tab 渲染延迟**
+  - 新增 `watch(activeTab)` 监听，切换到「操作日志」tab 时立即调用 `fetchLogs()` 同步刷新
+
+- **[新增] 主页系统版本信息**
+  - `ContractManager.vue` 底端新增版本信息栏：`© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.4.7`
+
+- **影响文件**：`database.py`、`contract_service.py`、`settings_service.py`、`auth_service.py`、`contracts.py`、`settings.py`、`contractManager.js`、`systemSettings.js`、`ContractManager.vue`
+
+---
+
 ### v1.4.6 (2026-06-29)
 **🔧 开发体验优化 & 框架兼容性修复**
 

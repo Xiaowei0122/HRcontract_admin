@@ -1,4 +1,4 @@
-import { reactive, ref } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 export function useSystemSettings() {
@@ -29,12 +29,33 @@ export function useSystemSettings() {
   const categories = ref([])             // 产品类别列表
   const categoryColors = ref({})         // 类别颜色映射
   const showCatDialog = ref(false)       // 新增/编辑类别弹窗
-  const catForm = reactive({ name: '', index: -1, isEdit: false })
+  const catForm = reactive({ name: '', color: '', index: -1, isEdit: false })
+
+  // ── 颜色池（与后端保持同步）──
+  const CATEGORY_COLOR_POOL = [
+    "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#f97316",
+    "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16", "#f43f5e",
+    "#14b8a6", "#a855f7", "#e11d48", "#0ea5e9", "#6366f1",
+  ]
+
+  // 自动选取首个未被占用的颜色
+  const autoPickColor = () => {
+    const used = new Set(Object.values(categoryColors.value).filter(Boolean))
+    for (const c of CATEGORY_COLOR_POOL) {
+      if (!used.has(c)) return c
+    }
+    return CATEGORY_COLOR_POOL[Object.keys(categoryColors.value).length % CATEGORY_COLOR_POOL.length]
+  }
 
   // ── 签署公司管理 ──
   const signingCompanies = ref([])       // 签署公司列表
   const showSignCompanyDialog = ref(false)
   const signCompanyForm = reactive({ name: '', index: -1, isEdit: false })
+
+  // ── 客户类别管理 ──
+  const customerTypes = ref([])            // 客户类别列表
+  const showCustTypeDialog = ref(false)
+  const custTypeForm = reactive({ name: '', index: -1, isEdit: false })
 
   // ── 系统配置表单：补全所有后端定义的 key ──
   const configForm = reactive({
@@ -100,7 +121,7 @@ export function useSystemSettings() {
   const getLogCategory = (log) => {
     const action = log.action || ''
     const user = log.user || ''
-    if (user === 'system') return 'system'
+    if (user === 'system' || user === '系统') return 'system'
     if (action.includes('合同') || action.includes('附件') || action.includes('导出')) return 'contract'
     if (action.includes('用户') || action.includes('注册') || action.includes('登录') || action.includes('密码') || action.includes('角色') || action.includes('禁用') || action.includes('启用') || action.includes('删除') && action.includes('用户')) return 'user'
     if (action.includes('配置') || action.includes('设置') || action.includes('字段') || action.includes('系统')) return 'settings'
@@ -260,6 +281,9 @@ export function useSystemSettings() {
         if (fRes.ok) {
           const data = await fRes.json()
           availableFields.value = data.availableFields || []
+          // 同步清理 default_visible_fields，移除已删除字段的 key
+          const validKeys = new Set(availableFields.value.map(f => f.key))
+          configForm.default_visible_fields = configForm.default_visible_fields.filter(k => validKeys.has(k))
         }
       } else {
         const err = await res.json()
@@ -286,6 +310,7 @@ export function useSystemSettings() {
 
   const openAddCatDialog = () => {
     catForm.name = ''
+    catForm.color = autoPickColor()
     catForm.index = -1
     catForm.isEdit = false
     showCatDialog.value = true
@@ -293,6 +318,7 @@ export function useSystemSettings() {
 
   const openEditCatDialog = (index) => {
     catForm.name = categories.value[index]
+    catForm.color = categoryColors.value[categories.value[index]] || autoPickColor()
     catForm.index = index
     catForm.isEdit = true
     showCatDialog.value = true
@@ -304,7 +330,11 @@ export function useSystemSettings() {
       return
     }
     try {
-      const body = { name: catForm.name.trim(), token: localStorage.getItem('token') }
+      const body = {
+        name: catForm.name.trim(),
+        color: catForm.color || '',
+        token: localStorage.getItem('token')
+      }
       let res
       if (catForm.isEdit) {
         res = await fetch(`http://localhost:9080/api/settings/categories/${catForm.index}`, {
@@ -424,6 +454,82 @@ export function useSystemSettings() {
   }
 
   // ═════════════════════════════════════════════════════════════
+  //  客户类别管理方法
+  // ═════════════════════════════════════════════════════════════
+
+  const fetchCustomerTypes = async () => {
+    try {
+      const res = await fetch('http://localhost:9080/api/settings/customer-types')
+      if (res.ok) {
+        const data = await res.json()
+        customerTypes.value = data.customerTypes || []
+        console.log('✅ 客户类别已加载:', customerTypes.value.length, '个')
+      }
+    } catch (e) { console.error('加载客户类别失败:', e) }
+  }
+
+  const openAddCustomerTypeDialog = () => {
+    custTypeForm.name = ''
+    custTypeForm.index = -1
+    custTypeForm.isEdit = false
+    showCustTypeDialog.value = true
+  }
+
+  const openEditCustomerTypeDialog = (index) => {
+    custTypeForm.name = customerTypes.value[index]
+    custTypeForm.index = index
+    custTypeForm.isEdit = true
+    showCustTypeDialog.value = true
+  }
+
+  const handleSaveCustomerType = async () => {
+    if (!custTypeForm.name.trim()) {
+      ElMessage.warning('请输入类别名称')
+      return
+    }
+    try {
+      const body = { name: custTypeForm.name.trim(), token: localStorage.getItem('token') }
+      let res
+      if (custTypeForm.isEdit) {
+        res = await fetch(`http://localhost:9080/api/settings/customer-types/${custTypeForm.index}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        })
+      } else {
+        res = await fetch('http://localhost:9080/api/settings/customer-types', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        })
+      }
+      if (res.ok) {
+        const data = await res.json()
+        customerTypes.value = data.customerTypes || []
+        ElMessage.success(custTypeForm.isEdit ? '客户类别已更新' : '客户类别已新增')
+        showCustTypeDialog.value = false
+      } else {
+        const err = await res.json()
+        ElMessage.error(err.detail || '操作失败')
+      }
+    } catch (e) { ElMessage.error('网络请求失败') }
+  }
+
+  const handleDeleteCustomerType = async (index) => {
+    const name = customerTypes.value[index]
+    try {
+      await ElMessageBox.confirm(`确定删除客户类别「${name}」？`, '删除确认', {
+        confirmButtonText: '确认删除', cancelButtonText: '取消', type: 'error',
+      })
+      const res = await fetch(`http://localhost:9080/api/settings/customer-types/${index}?token=${encodeURIComponent(localStorage.getItem('token'))}`, { method: 'DELETE' })
+      if (res.ok) {
+        const data = await res.json()
+        customerTypes.value = data.customerTypes || []
+        ElMessage.success('客户类别已删除')
+      } else {
+        const err = await res.json()
+        ElMessage.error(err.detail || '删除失败')
+      }
+    } catch (e) { if (e !== 'cancel') ElMessage.error('删除操作失败') }
+  }
+
+  // ═════════════════════════════════════════════════════════════
   //  初始化
   // ═════════════════════════════════════════════════════════════
   const fetchInitialData = async () => {
@@ -453,7 +559,7 @@ export function useSystemSettings() {
       // 日志独立分页加载
       await fetchLogs()
       // 字段定义 + 产品类别 + 签署公司
-      await Promise.all([fetchFieldDefinitions(), fetchCategories(), fetchSigningCompanies()])
+      await Promise.all([fetchFieldDefinitions(), fetchCategories(), fetchSigningCompanies(), fetchCustomerTypes()])
     } catch (err) {
       console.error('❌ 系统设置初始化失败:', err)
       ElMessage.error('系统设置初始化失败，请检查后端服务')
@@ -683,6 +789,13 @@ export function useSystemSettings() {
     }
   }
 
+  // 监听 tab 切换，切换到"操作日志"时立即刷新日志数据
+  watch(activeTab, (newTab) => {
+    if (newTab === 'logs') {
+      fetchLogs()
+    }
+  })
+
   return {
     activeTab, showPasswordDialog, pwdLoading, pwdForm,
     availableFields, configForm,
@@ -691,10 +804,13 @@ export function useSystemSettings() {
     openAddFieldDialog, openEditFieldDialog, handleSaveField, handleDeleteField,
     // 产品类别管理
     categories, categoryColors, showCatDialog, catForm,
-    openAddCatDialog, openEditCatDialog, handleSaveCategory, handleDeleteCategory,
+    openAddCatDialog, openEditCatDialog, handleSaveCategory, handleDeleteCategory, autoPickColor,
     // 签署公司管理
     signingCompanies, showSignCompanyDialog, signCompanyForm,
     openAddSignCompanyDialog, openEditSignCompanyDialog, handleSaveSignCompany, handleDeleteSignCompany,
+    // 客户类别管理
+    customerTypes, showCustTypeDialog, custTypeForm,
+    openAddCustomerTypeDialog, openEditCustomerTypeDialog, handleSaveCustomerType, handleDeleteCustomerType,
     userList, userStatusFilter, userLoading,
     statusTagType, statusLabel,
     roleTagType, roleLabel, roleOptions,

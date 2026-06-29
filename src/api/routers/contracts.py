@@ -127,16 +127,17 @@ async def update(
 
 # --- 5. 数据逻辑删除 ---
 @router.delete("/contracts/{contract_id}")
-async def delete(contract_id: str):
-    return await delete_contract(contract_id)
+async def delete(contract_id: str, operator: Optional[str] = Query(None)):
+    return await delete_contract(contract_id, operator)
 
 
 # --- 6. 批量打包下载合同附件 (Zip) ---
 @router.get("/contracts/batch-download")
 async def batch_download(
-    contract_ids: List[str] = Query(...)
+    contract_ids: List[str] = Query(...),
+    operator: Optional[str] = Query(None),
 ):
-    return await batch_download_contracts(contract_ids)
+    return await batch_download_contracts(contract_ids, operator)
 
 
 # --- 7. 单个合同附件下载 ---

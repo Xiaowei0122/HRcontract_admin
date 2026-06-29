@@ -318,7 +318,7 @@ async def list_users(data: UserListQueryData):
 # --- 7. 管理员审批用户 ---
 async def approve_user(data: ApproveUserData):
     """管理员审批通过或拒绝用户注册"""
-    await verify_admin_token(data.token)
+    admin_user = await verify_admin_token(data.token)
 
     if data.action not in ("approve", "reject"):
         raise HTTPException(status_code=400, detail="action 必须为 approve 或 reject")
@@ -338,16 +338,16 @@ async def approve_user(data: ApproveUserData):
     )
 
     label = "通过" if data.action == "approve" else "拒绝"
-    # 记日志
+    # 记日志（使用实际操作管理员的 username，write_log 会自动解析为显示名称）
     target_realname = target.get("realName", "") or data.username
-    await write_log("admin", f"{label}了用户「{target_realname}」的注册申请", "warning")
+    await write_log(admin_user["username"], f"{label}了用户「{target_realname}」的注册申请", "warning")
     return {"status": "success", "message": f"用户 {data.username} 的注册申请已{label}"}
 
 
 # --- 8. 管理员删除用户 ---
 async def admin_delete_user(data: DeleteUserData):
     """管理员删除用户（不可删除管理员）"""
-    await verify_admin_token(data.token)
+    admin_user = await verify_admin_token(data.token)
 
     target = await user_collection.find_one({"username": data.username.strip()})
     if not target:
@@ -358,14 +358,14 @@ async def admin_delete_user(data: DeleteUserData):
     await user_collection.delete_one({"username": data.username.strip()})
     # 记日志
     target_realname = target.get("realName", "") or data.username
-    await write_log("admin", f"删除了用户「{target_realname}」", "warning")
+    await write_log(admin_user["username"], f"删除了用户「{target_realname}」", "warning")
     return {"status": "success", "message": f"用户 {data.username} 已删除"}
 
 
 # --- 9. 管理员禁用/启用用户 ---
 async def toggle_user_status(data: ToggleUserStatusData):
     """管理员禁用或启用用户（不可操作管理员）"""
-    await verify_admin_token(data.token)
+    admin_user = await verify_admin_token(data.token)
 
     if data.action not in ("disable", "enable"):
         raise HTTPException(status_code=400, detail="action 必须为 disable 或 enable")
@@ -385,7 +385,7 @@ async def toggle_user_status(data: ToggleUserStatusData):
     label = "禁用" if data.action == "disable" else "启用"
     # 记日志
     target_realname = target.get("realName", "") or data.username
-    await write_log("admin", f"{label}了用户「{target_realname}」", "warning")
+    await write_log(admin_user["username"], f"{label}了用户「{target_realname}」", "warning")
     return {"status": "success", "message": f"用户 {data.username} 已{label}"}
 
 
@@ -416,5 +416,5 @@ async def set_user_role(data: SetUserRoleData):
     role_label = role_label_map.get(data.role, data.role)
     # 记日志
     target_realname = target.get("realName", "") or data.username
-    await write_log("admin", f"将用户「{target_realname}」的角色设置为「{role_label}」", "warning")
+    await write_log(admin["username"], f"将用户「{target_realname}」的角色设置为「{role_label}」", "warning")
     return {"status": "success", "message": f"用户 {data.username} 的角色已设为{role_label}"}

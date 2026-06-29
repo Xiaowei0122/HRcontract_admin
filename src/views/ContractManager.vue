@@ -80,10 +80,10 @@
               <p class="total-lab">总合同数</p>
             </div>
           </div>
-          <div class="chart-legend-grid">
-            <div v-for="c in categories" :key="c" class="legend-card">
+          <div class="chart-legend-grid" :style="legendGridConfig.gridStyle" :class="[legendGridConfig.gridClass, { 'legend-scroll': legendGridConfig.scrollable }]">
+            <div v-for="c in categories" :key="c" class="legend-card" :class="legendGridConfig.cardClass">
               <div class="legend-info">
-                <span class="legend-dot" :style="{ background: categoryColorMap[c] }"></span>
+                <span class="legend-dot" :style="{ background: categoryColorMap[c] || '#909399' }"></span>
                 <span class="legend-name">{{ c }}</span>
               </div>
               <div class="legend-data">
@@ -221,6 +221,10 @@
           </div>
       </el-card>
     </main>
+
+    <footer class="app-footer">
+      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.4.7-release</p>
+    </footer>
 
     <el-dialog
       v-model="modalVisible" 
@@ -431,7 +435,7 @@ const {
   visibleFields, allFields, activeColumns,
   filters,
   handleSearch, handleResetFilters,
-  getCatData,
+  getCatData, legendGridConfig,
 } = useContractManager()
 </script>
 
@@ -573,8 +577,38 @@ const {
 .canvas-wrapper { width: 220px; height: 220px; position: relative; }
 .chart-inner-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
 .total-val { font-size: 32px; font-weight: bold; margin: 0; }
-.chart-legend-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; flex: 1; }
+.chart-legend-grid { display: grid; gap: 15px; flex: 1; }
 .legend-card { background: #fcfcfc; border: 1px solid #f0f0f0; padding: 12px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; }
+.legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; flex-shrink: 0; }
+
+/* 图例自适应：类别超过 10 个后自动缩小卡片、增加列数 */
+.legend-compact { padding: 8px 10px; }
+.legend-compact .legend-dot { width: 8px; height: 8px; }
+.legend-compact .legend-name { font-size: 12px; }
+.legend-compact .count { font-size: 12px; }
+.legend-compact .percent { font-size: 11px; }
+
+.legend-dense { padding: 5px 8px; }
+.legend-dense .legend-dot { width: 7px; height: 7px; }
+.legend-dense .legend-name { font-size: 11px; }
+.legend-dense .count { font-size: 11px; }
+.legend-dense .percent { font-size: 10px; }
+
+.legend-mini { padding: 3px 6px; }
+.legend-mini .legend-dot { width: 6px; height: 6px; }
+.legend-mini .legend-name { font-size: 10px; }
+.legend-mini .count { font-size: 10px; }
+.legend-mini .percent { font-size: 9px; }
+
+/* 图例间距收窄 */
+.legend-gap-sm { gap: 10px; }
+.legend-gap-xs { gap: 6px; }
+
+/* 类别极多时限定高度并滚动，防止撑破布局 */
+.legend-scroll { max-height: 340px; overflow-y: auto; }
+.legend-scroll::-webkit-scrollbar { width: 5px; }
+.legend-scroll::-webkit-scrollbar-thumb { background: #c0c4cc; border-radius: 4px; }
+.legend-scroll::-webkit-scrollbar-track { background: transparent; }
 .filter-section { margin-bottom: 24px; border: 1px solid #ebeef5; border-radius: 10px; overflow: hidden; }
 .filter-row { display: flex; align-items: center; padding: 14px 20px; border-bottom: 1px solid #f2f6fc; }
 .filter-row:nth-child(2) { background-color: #fafbfc; }
@@ -665,5 +699,14 @@ const {
   padding: 2px 8px;
   border-radius: 4px;
   border: 1px solid #fde2e2;
+}
+
+/* 页脚版本信息 */
+.app-footer {
+  margin-top: 30px;
+  padding: 16px 0;
+  text-align: center;
+  color: #909399;
+  font-size: 13px;
 }
 </style>

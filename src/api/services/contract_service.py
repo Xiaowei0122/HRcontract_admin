@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from bson import ObjectId
 
-from database import contract_collection, settings_collection, write_log
+from database import contract_collection, settings_collection, write_log, resolve_display_name
 from services.shared import get_guest_data_limit
 
 # ═══════════════════════════════════════════════════════════════
@@ -296,7 +296,7 @@ async def upload_contract(
             "createTime": now_time,         # 创建时间
             "updateTime": now_time,         # 更新时间
             "isDeleted": False,             # 逻辑删除标记
-            "operator": operator            # 操作人
+            "operator": await resolve_display_name(operator if operator else "admin")  # 最后操作人
         }
 
         # --- D. 解析自定义字段 ---
@@ -374,7 +374,7 @@ async def update_contract(
             "signDate": signDate,
             "servicePeriod": servicePeriod,
             "remark": remark,
-            "operator": operator,
+            "operator": await resolve_display_name(operator if operator else "admin"),
             "updateTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S") # 记录修改时间
         }
 
@@ -434,7 +434,7 @@ async def update_contract(
 
 
 # --- 5. 数据逻辑删除 ---
-async def delete_contract(contract_id: str):
+async def delete_contract(contract_id: str, operator: Optional[str] = None):
     try:
         # 兼容处理：如果传入的是24位ObjectId则按_id查询，否则按contractId查询
         if ObjectId.is_valid(contract_id):
@@ -450,16 +450,21 @@ async def delete_contract(contract_id: str):
                 old_path.unlink()
                 print(f"🗑️ 已删除物理文件: {old_path}")
 
-        # 逻辑删除：只标记为已删除，保留历史数据
+        # 逻辑删除：只标记为已删除，保留历史数据（同时记录最后操作人）
         result = await contract_collection.update_one(
             query,
-            {"$set": {"isDeleted": True, "updateTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}}
+            {"$set": {
+                "isDeleted": True,
+                "updateTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "operator": await resolve_display_name(operator if operator else "admin"),
+            }}
         )
 
         if result.matched_count == 1:
             # 记日志
             contract_name = contract.get("name", contract_id) if contract else contract_id
-            await write_log("admin", f"删除了合同：「{contract_name}」", "warning")
+            op_user = operator if operator else "admin"
+            await write_log(op_user, f"删除了合同：「{contract_name}」", "warning")
             return {"message": "删除成功"}
         else:
             raise HTTPException(status_code=404, detail="未找到对应的合同记录")
@@ -470,7 +475,7 @@ async def delete_contract(contract_id: str):
 
 
 # --- 6. 批量打包下载合同附件 (Zip) ---
-async def batch_download_contracts(contract_ids: List[str]):
+async def batch_download_contracts(contract_ids: List[str], operator: Optional[str] = None):
     try:
         # 1. 查找合同（兼容 contractId 和 contractNo）
         cursor = contract_collection.find({
@@ -531,7 +536,8 @@ async def batch_download_contracts(contract_ids: List[str]):
         zip_buffer.seek(0)
 
         # 4. 记日志
-        await write_log("admin", f"批量导出了 {len(files_to_zip)} 份合同附件（ZIP压缩包）", "info")
+        op_user = operator if operator else "admin"
+        await write_log(op_user, f"批量导出了 {len(files_to_zip)} 份合同附件（ZIP压缩包）", "info")
 
         # 5. 返回流式响应
         zip_name = f"contracts_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.zip"

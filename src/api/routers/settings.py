@@ -7,12 +7,14 @@ from services.settings_service import (
     CustomFieldCreate, CustomFieldUpdate,
     CategoryCreate, CategoryUpdate,
     SigningCompanyCreate, SigningCompanyUpdate,
+    CustomerTypeCreate, CustomerTypeUpdate,
     init_settings,
     get_all_settings, get_available_fields, get_default_fields,
     set_default_fields, update_setting, get_logs, update_admin_password,
     get_field_definitions, add_custom_field, update_custom_field, delete_custom_field,
     get_categories, add_category, update_category, delete_category,
     get_signing_companies, add_signing_company, update_signing_company, delete_signing_company,
+    get_customer_types, add_customer_type, update_customer_type, delete_customer_type,
 )
 
 router = APIRouter(prefix="/api/settings", tags=["系统设置"])
@@ -126,3 +128,28 @@ async def signing_company_edit(company_index: int, data: SigningCompanyUpdate):
 async def signing_company_remove(company_index: int, token: str = Query(...)):
     """删除签署公司"""
     return await delete_signing_company(company_index, token)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  11. 客户类别管理
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/customer-types")
+async def customer_type_list():
+    """获取客户类别列表"""
+    return await get_customer_types()
+
+@router.post("/customer-types")
+async def customer_type_create(data: CustomerTypeCreate):
+    """新增客户类别"""
+    return await add_customer_type(data)
+
+@router.put("/customer-types/{type_index}")
+async def customer_type_edit(type_index: int, data: CustomerTypeUpdate):
+    """修改客户类别"""
+    return await update_customer_type(type_index, data)
+
+@router.delete("/customer-types/{type_index}")
+async def customer_type_remove(type_index: int, token: str = Query(...)):
+    """删除客户类别"""
+    return await delete_customer_type(type_index, token)
