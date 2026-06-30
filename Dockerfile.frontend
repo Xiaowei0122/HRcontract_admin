@@ -12,7 +12,8 @@ COPY public/ ./public/
 COPY src/ ./src/
 
 # 💡 自动清洗：将前端硬编码的调试地址去掉，转换为相对路径以配合 Nginx 转发
-RUN find src -name '*.vue' -exec sed -i 's|http://localhost:9080||g' {} +
+RUN find src -name '*.vue' -exec sed -i 's|http://localhost:9080||g' {} + \
+    && find src -name '*.js' -exec sed -i 's|http://localhost:9080||g' {} +
 RUN npm run build
 
 # ============ 阶段 2: 采用 Nginx 静态托管与反向代理 ============
