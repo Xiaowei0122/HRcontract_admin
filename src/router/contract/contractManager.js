@@ -437,13 +437,8 @@ const handleDownload = async (row) => {
   try {
     ElMessage.info('正在从 NAS 获取合同文件...');
 
-    // 🌟 核心防坑：动态获取当前浏览器的协议 (http/https) 和主机 IP/域名
-    // 完美解决在群晖外网穿透（HTTPS）访问时，请求 http://localhost:9080 被浏览器拦截下载的问题
-    const currentHost = window.location.hostname;
-    const protocol = window.location.protocol;
-
-    // 🌟 路径对齐：严格对应后端刚改好的新路由 /api/contracts/download-by-id/{contract_id}
-    const downloadApiUrl = `${protocol}//${currentHost}:9080/api/contracts/download-by-id/${row.contractId}`;
+    // 💡 使用相对路径走 nginx 反向代理，自动适配 http/https，避免跨域问题
+    const downloadApiUrl = `/api/contracts/download-by-id/${row.contractId}`;
 
     // 发起异步请求
     const response = await fetch(downloadApiUrl);
@@ -507,12 +502,8 @@ const handleBatchDownload = async () => {
     contractIds.forEach(id => params.append('contract_ids', id));
     params.append('operator', localStorage.getItem('realName') || localStorage.getItem('username') || 'admin');
 
-    // 动态抓取当前协议（http/https）与当前访问的 IP 或公网域名
-    const currentHost = window.location.hostname;
-    const protocol = window.location.protocol;
-
-    // 组装动态请求路径
-    const batchDownloadUrl = `${protocol}//${currentHost}:9080/api/contracts/batch-download?${params.toString()}`;
+    // 💡 使用相对路径走 nginx 反向代理，自动适配 http/https，避免跨域问题
+    const batchDownloadUrl = `/api/contracts/batch-download?${params.toString()}`;
 
     const response = await fetch(batchDownloadUrl);
 

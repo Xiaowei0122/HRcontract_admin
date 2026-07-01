@@ -22,7 +22,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend   # 💡 显式指定后端 Dockerfile 脚本
-    container_name: hrcontract-backend
+    container_name: hr-backend
     restart: always
     ports:
       - "9080:9080"                    # 暴露群晖的 9080 端口供直接调测后端
