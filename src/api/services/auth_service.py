@@ -67,6 +67,9 @@ class ChangePasswordData(BaseModel):
     oldPassword: str
     newPassword: str
 
+class VerifyTokenData(BaseModel):
+    token: str
+
 # ═══════════════════════════════════════════════════════════════
 #  辅助函数
 # ═══════════════════════════════════════════════════════════════
@@ -391,8 +394,12 @@ async def toggle_user_status(data: ToggleUserStatusData):
 
 # --- 10. 管理员设置用户角色 ---
 async def set_user_role(data: SetUserRoleData):
-    """管理员修改用户角色（不可修改自己的角色）"""
+    """仅超级管理员 admin 可修改用户角色（子管理员不可操作），修改后强制目标用户重新登录"""
     admin = await verify_admin_token(data.token)
+
+    # 🔒 仅超级管理员 admin 有权设置角色，子管理员（被提升为 admin 的用户）不可操作
+    if admin["username"] != "admin":
+        raise HTTPException(status_code=403, detail="仅超级管理员可设置用户角色，子管理员只可查看")
 
     if data.role not in ("admin", "user", "viewer"):
         raise HTTPException(status_code=400, detail="role 必须为 admin、user 或 viewer")
@@ -407,9 +414,10 @@ async def set_user_role(data: SetUserRoleData):
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
 
+    # 更新角色并清除目标用户的 token，强制其重新登录以刷新权限
     await user_collection.update_one(
         {"username": data.username.strip()},
-        {"$set": {"role": data.role}}
+        {"$set": {"role": data.role, "current_token": None}}
     )
 
     role_label_map = {"admin": "管理员", "user": "普通用户", "viewer": "查看者"}
@@ -417,4 +425,31 @@ async def set_user_role(data: SetUserRoleData):
     # 记日志
     target_realname = target.get("realName", "") or data.username
     await write_log(admin["username"], f"将用户「{target_realname}」的角色设置为「{role_label}」", "warning")
-    return {"status": "success", "message": f"用户 {data.username} 的角色已设为{role_label}"}
+    return {"status": "success", "message": f"用户 {data.username} 的角色已设为{role_label}，该用户需重新登录以刷新权限"}
+
+
+# --- 11. 验证 Token 有效性 ---
+async def verify_user_token(data: VerifyTokenData):
+    """前端页面加载时校验 token 是否仍然有效，防止旧会话绕过登录"""
+    if not data.token:
+        raise HTTPException(status_code=401, detail="未提供令牌")
+
+    user = await user_collection.find_one({"current_token": data.token})
+    if not user:
+        raise HTTPException(status_code=401, detail="令牌无效或已过期，请重新登录")
+
+    # 检查用户状态
+    status = user.get("status", "active")
+    if status == "disabled":
+        raise HTTPException(status_code=403, detail="账号已被禁用")
+    if status == "pending":
+        raise HTTPException(status_code=403, detail="账号尚未通过审核")
+    if status == "rejected":
+        raise HTTPException(status_code=403, detail="账号注册已被拒绝")
+
+    return {
+        "status": "success",
+        "username": user.get("username", ""),
+        "userRole": user.get("role", "user"),
+        "realName": user.get("realName", ""),
+    }

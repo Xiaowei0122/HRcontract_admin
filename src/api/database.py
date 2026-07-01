@@ -77,13 +77,14 @@ async def resolve_display_name(username: str) -> str:
 async def write_log(user: str, action: str, log_type: str = "warning") -> None:
     """写操作日志到 MongoDB system_logs 集合（所有路由共用）
 
-    自动将 username 解析为面向用户的显示名称（通过 resolve_display_name）。
+    同时存储原始 username 和写入时解析的显示名称，确保历史日志不受后续角色变更影响。
     """
     display_name = await resolve_display_name(user)
 
     entry = {
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "user": display_name,
+        "user": user,               # 原始 username，用于旧日志兼容
+        "displayName": display_name, # 写入时解析的显示名称，历史快照不会变
         "action": action,
         "type": log_type,
     }

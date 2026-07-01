@@ -4,6 +4,7 @@ import { Files, Money, Check, Timer } from '@element-plus/icons-vue'
 import Chart from 'chart.js/auto'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
+import CryptoJS from 'crypto-js'
 
 export function useContractManager() {
 
@@ -14,6 +15,17 @@ const router = useRouter()
 const userRole = ref(localStorage.getItem('userRole') || 'visitor')
 const isGuest = ref(localStorage.getItem('isGuest') === 'true')
 const realName = ref(localStorage.getItem('realName') || localStorage.getItem('username') || '用户')
+
+// 修改密码对话框（普通用户和子管理员可用）
+const showChangePwdDialog = ref(false)
+const changePwdLoading = ref(false)
+const changePwdForm = reactive({
+  oldPassword: '',
+  newPassword: '',
+  confirmPassword: '',
+})
+// 判断当前登录用户是否为超级管理员
+const isSuperAdmin = computed(() => localStorage.getItem('username') === 'admin')
 
 // 角色标签文字和颜色
 const roleLabel = computed(() => {
@@ -56,6 +68,140 @@ const handleLogout = () => {
     ElMessage.success('已安全退出')
     router.push('/login')
   }).catch(() => {})
+}
+
+// 强制退出（不弹确认框，用于 token 失效 / 会话超时）
+const forceLogout = async () => {
+  try {
+    const currentToken = localStorage.getItem('token')
+    const currentUsername = localStorage.getItem('username')
+    await fetch('http://localhost:9080/api/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: currentToken, username: currentUsername })
+    })
+  } catch (e) { /* 忽略 */ }
+  localStorage.removeItem('userRole')
+  localStorage.removeItem('isGuest')
+  localStorage.removeItem('token')
+  localStorage.removeItem('username')
+  localStorage.removeItem('admin_token')
+  router.push('/login')
+}
+
+// ── Token 有效性校验（页面加载时调用）──
+const verifyToken = async () => {
+  const token = localStorage.getItem('token')
+  if (!token) {
+    // 访客模式不需要 token
+    if (localStorage.getItem('isGuest') === 'true') return true
+    return false
+  }
+  try {
+    const res = await fetch('http://localhost:9080/api/verify-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      // 同步后端最新角色和真实姓名到 localStorage
+      localStorage.setItem('userRole', data.userRole)
+      localStorage.setItem('realName', data.realName)
+      userRole.value = data.userRole
+      realName.value = data.realName
+      return true
+    }
+    // Token 无效或账号已被禁用/删除
+    const err = await res.json().catch(() => ({}))
+    ElMessage.error(err.detail || '登录凭证已失效，请重新登录')
+    await forceLogout()
+    return false
+  } catch (e) {
+    // 网络不通时不强制退出，允许离线查看（但后续 API 调用会失败）
+    console.warn('⚠️ Token 校验失败（网络异常），跳过校验')
+    return true
+  }
+}
+
+// ── 会话超时控制 ──
+let lastActivityTime = Date.now()
+let sessionTimeoutMinutes = 0  // 0 = 不限
+let timeoutCheckInterval = null
+
+const resetActivityTimer = () => {
+  lastActivityTime = Date.now()
+}
+
+const startSessionTimeout = (timeoutMinutes) => {
+  sessionTimeoutMinutes = timeoutMinutes
+  // 清除旧定时器
+  if (timeoutCheckInterval) clearInterval(timeoutCheckInterval)
+  if (timeoutMinutes <= 0) return  // 不限时
+
+  // 每 30 秒检查一次
+  timeoutCheckInterval = setInterval(() => {
+    const idleMs = Date.now() - lastActivityTime
+    if (idleMs > timeoutMinutes * 60 * 1000) {
+      console.warn(`⏰ 会话超时（闲置 ${Math.round(idleMs / 60000)} 分钟），强制退出`)
+      ElMessage.warning(`您已闲置超过 ${timeoutMinutes} 分钟，系统已自动退出`)
+      if (timeoutCheckInterval) clearInterval(timeoutCheckInterval)
+      forceLogout()
+    }
+  }, 30000)
+}
+
+// 监听用户活动
+if (typeof window !== 'undefined') {
+  window.addEventListener('mousemove', resetActivityTimer, { passive: true })
+  window.addEventListener('keydown', resetActivityTimer, { passive: true })
+  window.addEventListener('click', resetActivityTimer, { passive: true })
+  window.addEventListener('scroll', resetActivityTimer, { passive: true })
+}
+
+// 主页修改密码（普通用户和子管理员可用，需验证原密码）
+const handleUserChangePassword = async () => {
+  if (!changePwdForm.oldPassword) {
+    return ElMessage.warning('请输入原密码')
+  }
+  if (!changePwdForm.newPassword || !changePwdForm.confirmPassword) {
+    return ElMessage.warning('请填写新密码')
+  }
+  if (changePwdForm.newPassword !== changePwdForm.confirmPassword) {
+    return ElMessage.error('两次密码输入不一致')
+  }
+  if (changePwdForm.newPassword.length < 6) {
+    return ElMessage.warning('密码长度不能少于6位')
+  }
+
+  changePwdLoading.value = true
+  try {
+    const oldHash = CryptoJS.SHA256(changePwdForm.oldPassword).toString()
+    const newHash = CryptoJS.SHA256(changePwdForm.newPassword).toString()
+    const response = await fetch('http://localhost:9080/api/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: localStorage.getItem('username'),
+        oldPassword: oldHash,
+        newPassword: newHash,
+      }),
+    })
+    const res = await response.json()
+    if (response.ok) {
+      ElMessage.success('密码修改成功')
+      showChangePwdDialog.value = false
+      changePwdForm.oldPassword = ''
+      changePwdForm.newPassword = ''
+      changePwdForm.confirmPassword = ''
+    } else {
+      ElMessage.error(res.detail || '密码修改失败')
+    }
+  } catch (err) {
+    ElMessage.error('无法连接服务器，请检查后端网络')
+  } finally {
+    changePwdLoading.value = false
+  }
 }
 
 // --- 基础数据（优先从后端加载，失败则使用默认值）---
@@ -145,6 +291,18 @@ const fetchTableData = async () => {
       // C. 🌟 饼图重绘：直接把后端算好的轻量分类映射表给到画图函数
       categoryStatistics.value = statsData.categoryStats || {}
       updateChart(categoryStatistics.value)
+    } else {
+      // 🚫 401 = token 失效，强制退出；403 = 权限不足（不退出，只提示）
+      if (pageRes.status === 401 || statsRes.status === 401) {
+        console.warn('🔒 Token 已失效，强制退出登录')
+        ElMessage.error('登录凭证已失效，请重新登录')
+        await forceLogout()
+        return
+      }
+      if (pageRes.status === 403 || statsRes.status === 403) {
+        ElMessage.error('权限不足，无法获取数据')
+      }
+      console.error('数据请求失败:', pageRes.status, statsRes.status)
     }
   } catch (error) {
     console.error("筛选联动失败:", error)
@@ -428,47 +586,19 @@ const handleDelete = async (row) => {
 
 // 单独下载附件
 const handleDownload = async (row) => {
-  // 🌟 核心改动：不再依赖可能错位的 fileUrl，直接用绝对唯一的 contractId 驱动下载
   if (!row.contractId) {
     ElMessage.error('该合同数据没有关联的唯一编号(contractId)');
     return;
   }
 
-  try {
-    ElMessage.info('正在从 NAS 获取合同文件...');
-
-    // 💡 使用相对路径走 nginx 反向代理，自动适配 http/https，避免跨域问题
-    const downloadApiUrl = `/api/contracts/download-by-id/${row.contractId}`;
-
-    // 发起异步请求
-    const response = await fetch(downloadApiUrl);
-
-    if (response.status === 404) {
-      ElMessage.error('后端数据库或文件系统中未找到对应的电子合同文件');
-      return;
-    }
-    if (!response.ok) throw new Error('下载失败');
-
-    // 将后端返回的文件流转换为二进制内存对象 (Blob)
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-
-    // 优先用合同真实名称命名，没有就用编号兜底
-    const fileKey = row.contractId || row.contractNo || row._id;
-    a.download = row.name ? `${row.name}.pdf` : `合同_${fileKey}.pdf`;
-
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-
-    ElMessage.success('合同文件下载成功');
-  } catch (error) {
-    console.error('前端下载逻辑捕获到异常:', error);
-    ElMessage.error('文件下载失败，请检查后端服务或网络配置');
-  }
+  // 💡 直接导航下载，不用 fetch+blob，避免 Chrome HTTP blob 安全警告
+  const downloadApiUrl = `/api/contracts/download-by-id/${row.contractId}`;
+  const a = document.createElement('a');
+  a.href = downloadApiUrl;
+  a.download = row.name ? `${row.name}.pdf` : `合同_${row.contractId}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 };
 
 
@@ -502,39 +632,15 @@ const handleBatchDownload = async () => {
     contractIds.forEach(id => params.append('contract_ids', id));
     params.append('operator', localStorage.getItem('realName') || localStorage.getItem('username') || 'admin');
 
-    // 💡 使用相对路径走 nginx 反向代理，自动适配 http/https，避免跨域问题
+    // 💡 直接导航下载，不用 fetch+blob，避免 Chrome HTTP blob 安全警告
     const batchDownloadUrl = `/api/contracts/batch-download?${params.toString()}`;
-
-    const response = await fetch(batchDownloadUrl);
-
-    // 🌟 核心修复：面向用户的状态码提示，告别技术术语 🌟
-    if (response.status === 404) {
-      ElMessage.error('未找到对应的合同档案记录，请刷新页面重试');
-      return;
-    }
-    if (response.status === 400) {
-      // 按照你的要求：不提 NAS，统一话术为数据库，并且通俗易懂
-      ElMessage.error('选中的合同在系统数据库中未找到对应的电子 PDF 文件');
-      return;
-    }
-    if (!response.ok) throw new Error('打包失败');
-
-    // 接收后端 StreamingResponse 返回的二进制 ZIP 文件流
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-
-    // 规范 ZIP 压缩包命名
+    a.href = batchDownloadUrl;
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     a.download = `合同批量下载_${dateStr}.zip`;
-
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-
-    ElMessage.success(`成功下载 ${contractIds.length} 份合同档案`);
   } catch (error) {
     console.error('批量下载流捕获异常:', error);
     // 🌟 核心修复：用户看不懂群晖 Container，改成指导他们检查网络或联系管理员 🌟
@@ -800,12 +906,21 @@ watch(allContractsData, (newVal) => {
 
 const initPageData = async () => {
   try {
+    // 0. 校验 token 有效性（防止旧会话绕过登录）
+    const isTokenValid = await verifyToken()
+    if (!isTokenValid && localStorage.getItem('isGuest') !== 'true') {
+      return  // verifyToken 已处理跳转
+    }
+
     // 1. 获取系统参数配置
     const response = await fetch('http://localhost:9080/api/settings/')
     if (response.ok) {
       const configRes = await response.json()
       Object.assign(sysConfig, configRes)
       console.log("翻页系统配置加载完成")
+
+      // 💡 启动会话超时监控
+      startSessionTimeout(configRes.session_timeout_minutes || 0)
 
       // 2. 🔧 读取管理员设定的默认可见字段
       const serverDefaults = configRes.default_visible_fields || []
@@ -886,7 +1001,11 @@ onMounted(() => {
 return {
   // EVERY variable, function, computed that the template references
   userRole, isGuest, realName, roleLabel, roleTagType,
-  handleLogout,
+  handleLogout, forceLogout,
+  verifyToken,
+  showChangePwdDialog, changePwdLoading, changePwdForm,
+  isSuperAdmin,
+  handleUserChangePassword,
   categories, customerTypes, signingCompanies, categoryColorMap,
   customFieldDefs,
   statusList, statusTagMap,

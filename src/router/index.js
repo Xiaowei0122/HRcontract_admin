@@ -17,21 +17,34 @@ const routes = [
     path: '/',
     name: 'ContractManager',
     component: ContractManager,
-    // 路由守卫：未登录跳回登录页
+    // 路由守卫：未登录或凭证缺失则跳回登录页
     beforeEnter: (to, from, next) => {
       const role = localStorage.getItem('userRole')
-      if (!role) next('/login')
-      else next()
+      const isGuest = localStorage.getItem('isGuest') === 'true'
+      const token = localStorage.getItem('token')
+      // 非访客必须有 token，否则会话已失效
+      if (!role || (!isGuest && !token)) {
+        // 清理残留数据后跳转登录
+        localStorage.removeItem('userRole')
+        localStorage.removeItem('isGuest')
+        localStorage.removeItem('token')
+        localStorage.removeItem('username')
+        localStorage.removeItem('admin_token')
+        next('/login')
+      } else {
+        next()
+      }
     }
   },
   {
     path: '/system-settings',
     name: 'SystemSettings',
     component: SystemSettings,
-    // 路由守卫：仅管理员可访问，普通用户跳回首页
+    // 路由守卫：仅管理员可访问，且须有有效 token
     beforeEnter: (to, from, next) => {
       const role = localStorage.getItem('userRole')
-      if (role !== 'admin') next('/')
+      const token = localStorage.getItem('token')
+      if (role !== 'admin' || !token) next('/')
       else next()
     }
   }

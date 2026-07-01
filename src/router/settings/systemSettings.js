@@ -5,7 +5,10 @@ export function useSystemSettings() {
   const activeTab = ref('config')
   const showPasswordDialog = ref(false)
   const pwdLoading = ref(false)
+  // 判断当前登录用户是否为超级管理员（仅 admin 账号拥有完整权限）
+  const isSuperAdmin = ref(localStorage.getItem('username') === 'admin')
   const pwdForm = reactive({
+    oldPassword: '',
     newPassword: '',
     confirmPassword: '',
   })
@@ -753,9 +756,11 @@ export function useSystemSettings() {
     }
   }
 
-  // 密码修改逻辑
-  // 密码修改逻辑
+  // 密码修改逻辑（需验证原密码）
   const handlePasswordUpdate = async () => {
+    if (!pwdForm.oldPassword) {
+      return ElMessage.warning('请输入原密码')
+    }
     if (!pwdForm.newPassword || !pwdForm.confirmPassword) {
       return ElMessage.warning('请填写新密码')
     }
@@ -771,12 +776,17 @@ export function useSystemSettings() {
       const response = await fetch('http://localhost:9080/api/settings/update_password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ new_password: pwdForm.newPassword }),
+        body: JSON.stringify({
+          old_password: pwdForm.oldPassword,
+          new_password: pwdForm.newPassword,
+          token: localStorage.getItem('token'),
+        }),
       })
       const res = await response.json()
       if (response.ok) {
-        ElMessage.success('管理员密码已修改，请妥善保管')
+        ElMessage.success('密码已修改，请妥善保管')
         showPasswordDialog.value = false
+        pwdForm.oldPassword = ''
         pwdForm.newPassword = ''
         pwdForm.confirmPassword = ''
       } else {
@@ -798,6 +808,7 @@ export function useSystemSettings() {
 
   return {
     activeTab, showPasswordDialog, pwdLoading, pwdForm,
+    isSuperAdmin,
     availableFields, configForm,
     // 字段管理
     fieldDefinitions, baseFieldKeys, showFieldDialog, fieldForm, fieldTypeOptions,

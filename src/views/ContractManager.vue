@@ -41,11 +41,19 @@
       >
         系统设置
       </el-button>
-
-      <el-button 
+      <el-button
+        v-if="!isGuest && !isSuperAdmin"
+        link
+        :icon="Lock"
+        @click="showChangePwdDialog = true"
+        style="color: #409eff;"
+      >
+        修改密码
+      </el-button>
+      <el-button
         class="logout-btn"
-        link 
-        :icon="SwitchButton" 
+        link
+        :icon="SwitchButton"
         @click="handleLogout"
       >
         退出系统
@@ -223,7 +231,7 @@
     </main>
 
     <footer class="app-footer">
-      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.4.7-release</p>
+      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.4.8-release</p>
     </footer>
 
     <el-dialog
@@ -406,16 +414,38 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- ═══════════════ 修改密码对话框（普通用户和子管理员） ═══════════════ -->
+    <el-dialog v-model="showChangePwdDialog" title="修改登录密码" width="420px" :close-on-click-modal="false">
+      <el-form :model="changePwdForm" label-position="top">
+        <el-form-item label="原密码">
+          <el-input v-model="changePwdForm.oldPassword" type="password" placeholder="请输入原密码" show-password />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="changePwdForm.newPassword" type="password" placeholder="请输入新密码（至少6位）" show-password />
+        </el-form-item>
+        <el-form-item label="确认新密码">
+          <el-input v-model="changePwdForm.confirmPassword" type="password" placeholder="请再次输入新密码" show-password />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showChangePwdDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleUserChangePassword" :loading="changePwdLoading">确认修改</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { Download, Document, ArrowLeft, Delete, EditPen, Briefcase, Plus, Search, PieChart, Setting, InfoFilled, SwitchButton, UserFilled, Tickets } from '@element-plus/icons-vue'
+import { Download, Document, ArrowLeft, Delete, EditPen, Briefcase, Plus, Search, PieChart, Setting, InfoFilled, SwitchButton, UserFilled, Tickets, Lock } from '@element-plus/icons-vue'
 import { useContractManager } from '../router/contract/contractManager'
 
 const {
   userRole, isGuest, realName, roleLabel, roleTagType,
   handleLogout,
+  showChangePwdDialog, changePwdLoading, changePwdForm,
+  isSuperAdmin,
+  handleUserChangePassword,
   categories, customerTypes, signingCompanies, categoryColorMap,
   customFieldDefs,
   statusList, statusTagMap,

@@ -5,10 +5,11 @@ from fastapi import APIRouter
 from services.auth_service import (
     LoginData, LogoutData, RegisterData, ApproveUserData,
     UserListQueryData, DeleteUserData, ToggleUserStatusData,
-    SetUserRoleData, ChangePasswordData,
+    SetUserRoleData, ChangePasswordData, VerifyTokenData,
     login_user, logout_user, change_user_password,
     serve_guest_mode, register_user, list_users,
     approve_user, admin_delete_user, toggle_user_status, set_user_role,
+    verify_user_token,
 )
 
 # 创建路由对象
@@ -66,3 +67,8 @@ async def toggle_user_status_route(data: ToggleUserStatusData):
 @router.post("/admin/set-user-role")
 async def set_user_role_route(data: SetUserRoleData):
     return await set_user_role(data)
+
+# --- 11. 验证 Token 有效性接口 ---
+@router.post("/verify-token")
+async def verify_token_route(data: VerifyTokenData):
+    return await verify_user_token(data)

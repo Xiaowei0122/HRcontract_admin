@@ -133,6 +133,7 @@ class FieldsUpdate(BaseModel):
     token: str
 
 class PasswordUpdate(BaseModel):
+    old_password: str
     new_password: str
     token: str
 
@@ -320,19 +321,25 @@ async def update_setting(item: ConfigUpdate):
 async def get_logs(page: int = 1, pageSize: int = 20):
     """分页获取系统操作日志，默认每页 20 条
 
-    自动将旧日志中的原始用户名解析为显示名称（新日志在写入时已包含显示名称）。
+    新日志（含 displayName 字段）直接使用写入时的历史快照；
+    旧日志（无 displayName 字段）则按当前数据库状态解析显示名称。
     """
     try:
         total = await logs_collection.count_documents({})
         skip = (page - 1) * pageSize
         cursor = logs_collection.find().sort("time", -1).skip(skip).limit(pageSize)
         logs = await cursor.to_list(length=pageSize)
-        # 去掉 _id，并兼容旧日志：将原始用户名解析为显示名称
+        # 去掉 _id，并处理显示名称
         for log in logs:
             log.pop("_id", None)
-            # resolve_display_name 对已解析的名称（如"系统管理员"）会原样返回
-            # 对旧日志中的原始用户名（如"admin"、"xiaowei"）会解析为显示名称
-            log["user"] = await resolve_display_name(log["user"])
+            # 优先使用写入时保存的历史显示名称（不受后续角色变更影响）
+            if log.get("displayName"):
+                log["user"] = log["displayName"]
+            else:
+                # 兼容旧日志（无 displayName 字段）：按当前数据库状态解析
+                log["user"] = await resolve_display_name(log.get("user", ""))
+            # 清理内部字段，不暴露给前端
+            log.pop("displayName", None)
         return {"logs": logs, "total": total, "page": page, "pageSize": pageSize}
     except Exception as e:
         print(f"❌ 获取日志失败: {e}")
@@ -341,18 +348,30 @@ async def get_logs(page: int = 1, pageSize: int = 20):
 
 # ── 7. 修改管理员密码 ─────────────────────────────────────────
 async def update_admin_password(data: PasswordUpdate):
-    """管理员修改自己的密码"""
+    """管理员修改自己的密码（需验证原密码；子管理员不可修改超级管理员密码）"""
     import hashlib
 
     admin = await verify_admin_token(data.token)
 
+    if not data.old_password:
+        raise HTTPException(status_code=400, detail="请输入原密码")
     if not data.new_password or len(data.new_password) < 6:
         raise HTTPException(status_code=400, detail="密码长度不能少于6位")
 
+    # 🔒 验证原密码是否正确
+    old_hash = hashlib.sha256(data.old_password.encode()).hexdigest()
+    if admin.get("password") != old_hash:
+        raise HTTPException(status_code=401, detail="原密码错误")
+
+    # 🔒 子管理员不可修改超级管理员 admin 的密码
+    if admin["username"] != "admin":
+        raise HTTPException(status_code=403, detail="仅超级管理员可修改管理员密码，子管理员请前往主页修改自己的密码")
+
     new_hash = hashlib.sha256(data.new_password.encode()).hexdigest()
 
+    # 🔒 仅更新当前登录管理员的密码（不再批量更新所有管理员）
     result = await user_collection.update_one(
-        {"role": "admin"},
+        {"username": admin["username"]},
         {"$set": {"password": new_hash, "is_default_password": False}},
     )
 
@@ -360,7 +379,7 @@ async def update_admin_password(data: PasswordUpdate):
         raise HTTPException(status_code=404, detail="未找到管理员账号")
 
     await write_log(admin["username"], "管理员密码已被修改", "warning")
-    return {"status": "success", "message": "管理员密码已修改，请妥善保管"}
+    return {"status": "success", "message": "密码已修改，请妥善保管"}
 
 
 # ═══════════════════════════════════════════════════════════════

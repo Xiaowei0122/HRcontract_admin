@@ -378,7 +378,7 @@
                     <el-button link type="danger" size="small" @click="handleApprove(row.username, 'reject')">拒绝</el-button>
                   </template>
                   <template v-else-if="row.username !== 'admin'">
-                    <el-button link type="primary" size="small" @click="handleSetRole(row)">权限设置</el-button>
+                    <el-button v-if="isSuperAdmin" link type="primary" size="small" @click="handleSetRole(row)">权限设置</el-button>
                     <el-button v-if="row.status !== 'disabled'" link type="warning" size="small" @click="handleToggleStatus(row.username, 'disable')">禁用</el-button>
                     <el-button v-else link type="success" size="small" @click="handleToggleStatus(row.username, 'enable')">启用</el-button>
                     <el-button link type="danger" size="small" @click="handleDeleteUser(row.username)">删除</el-button>
@@ -483,6 +483,9 @@
     <!-- ═══════════════ 修改密码对话框 ═══════════════ -->
     <el-dialog v-model="showPasswordDialog" title="修改管理员密码" width="420px" :close-on-click-modal="false">
       <el-form :model="pwdForm" label-position="top">
+        <el-form-item label="原密码">
+          <el-input v-model="pwdForm.oldPassword" type="password" placeholder="请输入原密码" show-password />
+        </el-form-item>
         <el-form-item label="新密码">
           <el-input v-model="pwdForm.newPassword" type="password" placeholder="请输入新密码（至少6位）" show-password />
         </el-form-item>
@@ -588,6 +591,7 @@ import { useSystemSettings } from '../router/settings/systemSettings'
 
 const {
   activeTab, showPasswordDialog, pwdLoading, pwdForm,
+  isSuperAdmin,
   availableFields, configForm,
   // 字段管理
   fieldDefinitions, baseFieldKeys, showFieldDialog, fieldForm, fieldTypeOptions,
