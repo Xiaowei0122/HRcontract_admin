@@ -8,6 +8,7 @@ from services.settings_service import (
     CategoryCreate, CategoryUpdate,
     SigningCompanyCreate, SigningCompanyUpdate,
     CustomerTypeCreate, CustomerTypeUpdate,
+    ContractTypeCreate, ContractTypeUpdate,
     init_settings,
     get_all_settings, get_available_fields, get_default_fields,
     set_default_fields, update_setting, get_logs, update_admin_password,
@@ -15,6 +16,7 @@ from services.settings_service import (
     get_categories, add_category, update_category, delete_category,
     get_signing_companies, add_signing_company, update_signing_company, delete_signing_company,
     get_customer_types, add_customer_type, update_customer_type, delete_customer_type,
+    get_contract_types, add_contract_type, update_contract_type, delete_contract_type,
 )
 
 router = APIRouter(prefix="/api/settings", tags=["系统设置"])
@@ -153,3 +155,28 @@ async def customer_type_edit(type_index: int, data: CustomerTypeUpdate):
 async def customer_type_remove(type_index: int, token: str = Query(...)):
     """删除客户类别"""
     return await delete_customer_type(type_index, token)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  12. 合同类型管理
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/contract-types")
+async def contract_type_list():
+    """获取合同类型列表"""
+    return await get_contract_types()
+
+@router.post("/contract-types")
+async def contract_type_create(data: ContractTypeCreate):
+    """新增合同类型"""
+    return await add_contract_type(data)
+
+@router.put("/contract-types/{type_index}")
+async def contract_type_edit(type_index: int, data: ContractTypeUpdate):
+    """修改合同类型"""
+    return await update_contract_type(type_index, data)
+
+@router.delete("/contract-types/{type_index}")
+async def contract_type_remove(type_index: int, token: str = Query(...)):
+    """删除合同类型"""
+    return await delete_contract_type(type_index, token)

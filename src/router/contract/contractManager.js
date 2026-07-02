@@ -208,6 +208,7 @@ const handleUserChangePassword = async () => {
 const categories = ref(["计算机设备", "办公用品", "电子产品", "福利产品", "劳保用品", "办公耗材", "网络安防", "维修维护服务"])
 const customerTypes = ref(["高校", "党政机关", "国企", "央企", "事业单位", "民营企业"])
 const signingCompanies = ref(["鸿瑞办公", "政通慧采", "众冠供应链"])
+const contractTypes = ref(["销售合同", "采购合同", "服务合同"])
 const categoryColorMap = ref({"计算机设备": "#3b82f6","办公用品": "#10b981","电子产品": "#f59e0b", "福利产品": "#ef4444",  "劳保用品": "#f97316",  "办公耗材": "#8b5cf6",  "网络安防": "#06b6d4",  "维修维护服务": "#ec4899"})
 const statusList = ["草稿", "待签署", "已签署", "已终止"]
 const statusTagMap = { '已签署': 'success', '待签署': 'warning', '草稿': 'info', '已终止': 'danger' }
@@ -947,12 +948,13 @@ const initPageData = async () => {
       }
     }
 
-    // 3. 并发加载：字段定义 + 产品类别 + 签署公司 + 客户类别
-    const [fieldsRes, catRes, scRes, ctRes] = await Promise.all([
+    // 3. 并发加载：字段定义 + 产品类别 + 签署公司 + 客户类别 + 合同类型
+    const [fieldsRes, catRes, scRes, ctRes, coRes] = await Promise.all([
       fetch('http://localhost:9080/api/settings/fields'),
       fetch('http://localhost:9080/api/settings/categories'),
       fetch('http://localhost:9080/api/settings/signing-companies'),
       fetch('http://localhost:9080/api/settings/customer-types'),
+      fetch('http://localhost:9080/api/settings/contract-types'),
     ])
     if (fieldsRes.ok) {
       const fData = await fieldsRes.json()
@@ -983,6 +985,13 @@ const initPageData = async () => {
         console.log('✅ 客户类别已同步:', customerTypes.value.length, '个')
       }
     }
+    if (coRes.ok) {
+      const coData = await coRes.json()
+      if (coData.contractTypes) {
+        contractTypes.value = coData.contractTypes
+        console.log('✅ 合同类型已同步:', contractTypes.value.length, '个')
+      }
+    }
 
     // 4. 💡 关键：配置加载完后，立刻让真正的后端分页去捞第一页的合同数据！
     await fetchTableData()
@@ -1006,7 +1015,7 @@ return {
   showChangePwdDialog, changePwdLoading, changePwdForm,
   isSuperAdmin,
   handleUserChangePassword,
-  categories, customerTypes, signingCompanies, categoryColorMap,
+  categories, customerTypes, signingCompanies, contractTypes, categoryColorMap,
   customFieldDefs,
   statusList, statusTagMap,
   contracts, allContractsData, categoryStatistics,

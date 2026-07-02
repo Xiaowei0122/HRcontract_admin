@@ -214,6 +214,35 @@
 
                 <el-divider />
 
+                <!-- ── 合同类型管理 ── -->
+                <h3 class="section-title">合同类型管理</h3>
+                <div class="field-mgmt-section">
+                  <div class="field-mgmt-tip">
+                    <el-icon><InfoFilled /></el-icon>
+                    管理合同的类型选项，将同步更新合同管理页筛选下拉和表单下拉。
+                  </div>
+                  <div class="category-tags" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                    <el-tag
+                      v-for="(ct, idx) in contractTypes"
+                      :key="ct"
+                      type="danger"
+                      size="large"
+                      closable
+                      effect="dark"
+                      style="cursor: pointer;"
+                      @close="handleDeleteContractType(idx)"
+                      @click="openEditContractTypeDialog(idx)"
+                    >
+                      {{ ct }}
+                    </el-tag>
+                    <el-button type="primary" :icon="Plus" size="small" @click="openAddContractTypeDialog" plain>
+                      新增合同类型
+                    </el-button>
+                  </div>
+                </div>
+
+                <el-divider />
+
                 <!-- ── 默认显示字段 ── -->
                 <h3 class="section-title">默认显示字段</h3>
                 <el-form-item label="默认显示字段">
@@ -354,7 +383,6 @@
               <el-table-column prop="department" label="部门" width="120" />
               <el-table-column prop="phone" label="手机号" width="130" />
               <el-table-column prop="registerTime" label="注册时间" width="160" />
-              <el-table-column prop="createTime" label="创建时间" width="160" />
               <el-table-column prop="isDisable" label="是否禁用" width="90">
                 <template #default="{ row }">
                   <el-tag :type="row.isDisable ? 'danger' : 'success'" effect="plain" size="small">
@@ -362,7 +390,7 @@
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column prop="currentToken" label="当前Token" width="180" show-overflow-tooltip>
+              <el-table-column v-if="isSuperAdmin" prop="currentToken" label="当前Token" width="180" show-overflow-tooltip>
                 <template #default="{ row }">
                   <span v-if="row.currentToken" :title="row.currentToken" style="font-size: 12px; color: #909399;">
                     {{ row.currentToken.substring(0, 20) }}{{ row.currentToken.length > 20 ? '...' : '' }}
@@ -371,7 +399,7 @@
                 </template>
               </el-table-column>
               <el-table-column prop="lastLogin" label="最后登录" width="160" />
-              <el-table-column label="操作" width="240" fixed="right">
+              <el-table-column label="操作" width="300" fixed="right">
                 <template #default="{ row }">
                   <template v-if="row.status === 'pending'">
                     <el-button link type="success" size="small" @click="handleApprove(row.username, 'approve')">通过</el-button>
@@ -379,6 +407,9 @@
                   </template>
                   <template v-else-if="row.username !== 'admin'">
                     <el-button v-if="isSuperAdmin" link type="primary" size="small" @click="handleSetRole(row)">权限设置</el-button>
+                    <el-button link type="info" size="small" @click="openEditUserDialog(row)">
+                      <el-icon><EditPen /></el-icon> 编辑
+                    </el-button>
                     <el-button v-if="row.status !== 'disabled'" link type="warning" size="small" @click="handleToggleStatus(row.username, 'disable')">禁用</el-button>
                     <el-button v-else link type="success" size="small" @click="handleToggleStatus(row.username, 'enable')">启用</el-button>
                     <el-button link type="danger" size="small" @click="handleDeleteUser(row.username)">删除</el-button>
@@ -581,6 +612,56 @@
         <el-button type="primary" @click="handleSaveCustomerType">{{ custTypeForm.isEdit ? '保存修改' : '确认新增' }}</el-button>
       </template>
     </el-dialog>
+
+    <!-- ═══════════════ 合同类型编辑对话框 ═══════════════ -->
+    <el-dialog v-model="showContractTypeDialog" :title="contractTypeForm.isEdit ? '编辑合同类型' : '新增合同类型'" width="420px" :close-on-click-modal="false">
+      <el-form :model="contractTypeForm" label-position="top">
+        <el-form-item label="类型名称">
+          <el-input v-model="contractTypeForm.name" placeholder="如：租赁合同" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showContractTypeDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveContractType">{{ contractTypeForm.isEdit ? '保存修改' : '确认新增' }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ═══════════════ 编辑用户信息对话框 ═══════════════ -->
+    <el-dialog v-model="showEditUserDialog" title="编辑用户信息" width="520px" :close-on-click-modal="false">
+      <el-form :model="editUserForm" label-position="top">
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="用户名">
+              <el-input v-model="editUserForm.username" disabled />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="真实姓名">
+              <el-input v-model="editUserForm.realName" disabled />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="邮箱">
+              <el-input v-model="editUserForm.email" placeholder="选填" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="手机号">
+              <el-input v-model="editUserForm.phone" placeholder="选填" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="部门">
+          <el-input v-model="editUserForm.department" placeholder="所属部门（选填）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showEditUserDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveUserInfo" :loading="editUserLoading">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -605,10 +686,15 @@ const {
   // 客户类别管理
   customerTypes, showCustTypeDialog, custTypeForm,
   openAddCustomerTypeDialog, openEditCustomerTypeDialog, handleSaveCustomerType, handleDeleteCustomerType,
+  // 合同类型管理
+  contractTypes, showContractTypeDialog, contractTypeForm,
+  openAddContractTypeDialog, openEditContractTypeDialog, handleSaveContractType, handleDeleteContractType,
   userList, userStatusFilter, userLoading,
   statusTagType, statusLabel,
   roleTagType, roleLabel, roleOptions,
   showRoleDialog, roleTargetUser, selectedRole,
+  showEditUserDialog, editUserLoading, editUserForm,
+  openEditUserDialog, handleSaveUserInfo,
   logs, logFilter, filteredLogs,
   logPage, logPageSize, logTotal,
   getLogColor, getLogTagType, getLogCategoryLabel,

@@ -62,6 +62,13 @@ class SetUserRoleData(BaseModel):
     role: str         # "admin" | "user" | "viewer"
     token: str
 
+class UpdateUserData(BaseModel):
+    username: str
+    email: str = ""
+    phone: str = ""
+    department: str = ""
+    token: str
+
 class ChangePasswordData(BaseModel):
     username: str
     oldPassword: str
@@ -289,7 +296,7 @@ async def register_user(data: RegisterData):
 # --- 6. 管理员用户列表 ---
 async def list_users(data: UserListQueryData):
     """管理员查看用户列表，可按状态筛选"""
-    await verify_admin_token(data.token)
+    admin = await verify_admin_token(data.token)
 
     query = {}
     if data.status:
@@ -298,9 +305,11 @@ async def list_users(data: UserListQueryData):
     cursor = user_collection.find(query).sort("registerTime", -1)
     users = await cursor.to_list(length=200)
 
+    is_super_admin = admin.get("username") == "admin"
+
     result = []
     for u in users:
-        result.append({
+        user_entry = {
             "username": u.get("username", ""),
             "role": u.get("role", "user"),
             "status": u.get("status", "active"),
@@ -310,10 +319,12 @@ async def list_users(data: UserListQueryData):
             "department": u.get("department", ""),
             "registerTime": u.get("registerTime", ""),
             "lastLogin": u.get("lastLogin", ""),
-            "createTime": u.get("registerTime", ""),  # 兼容字段：创建时间
             "isDisable": u.get("status") == "disabled",  # 是否禁用
-            "currentToken": u.get("current_token") or "",  # 当前会话令牌
-        })
+        }
+        # 仅超级管理员（admin）可查看用户 token，防止子管理员窃取令牌越权
+        if is_super_admin:
+            user_entry["currentToken"] = u.get("current_token") or ""
+        result.append(user_entry)
 
     return {"status": "success", "users": result}
 
@@ -428,7 +439,41 @@ async def set_user_role(data: SetUserRoleData):
     return {"status": "success", "message": f"用户 {data.username} 的角色已设为{role_label}，该用户需重新登录以刷新权限"}
 
 
-# --- 11. 验证 Token 有效性 ---
+# --- 11. 管理员编辑用户信息 ---
+async def update_user_info(data: UpdateUserData):
+    """管理员更新用户的基本信息（邮箱、手机号、部门）"""
+    admin = await verify_admin_token(data.token)
+
+    target = await user_collection.find_one({"username": data.username.strip()})
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if target.get("role") == "admin" and admin["username"] != "admin":
+        raise HTTPException(status_code=403, detail="子管理员不能编辑超级管理员的信息")
+
+    update_fields = {}
+    if data.email:
+        update_fields["email"] = data.email.strip()
+    if data.phone:
+        update_fields["phone"] = data.phone.strip()
+    if data.department:
+        update_fields["department"] = data.department.strip()
+
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="至少需要提供一个要更新的字段")
+
+    await user_collection.update_one(
+        {"username": data.username.strip()},
+        {"$set": update_fields}
+    )
+
+    # 记日志
+    target_realname = target.get("realName", "") or data.username
+    changed = "、".join(update_fields.keys())
+    await write_log(admin["username"], f"编辑了用户「{target_realname}」的信息（{changed}）", "warning")
+    return {"status": "success", "message": f"用户 {data.username} 信息已更新"}
+
+
+# --- 12. 验证 Token 有效性 ---
 async def verify_user_token(data: VerifyTokenData):
     """前端页面加载时校验 token 是否仍然有效，防止旧会话绕过登录"""
     if not data.token:

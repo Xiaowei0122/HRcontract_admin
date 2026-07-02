@@ -58,6 +58,9 @@ DEFAULT_SIGNING_COMPANIES = ["鸿瑞办公", "政通慧采", "众冠供应链"]
 # ── 默认客户类别 ─────────────────────────────────────────────────
 DEFAULT_CUSTOMER_TYPES = ["高校", "党政机关", "国企", "央企", "事业单位", "民营企业"]
 
+# ── 默认合同类型 ─────────────────────────────────────────────────
+DEFAULT_CONTRACT_TYPES = ["销售合同", "采购合同", "服务合同"]
+
 # ── 默认类别颜色映射（新增类别自动分配颜色）──────────────────────
 CATEGORY_COLOR_POOL = [
     "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#f97316",
@@ -84,6 +87,7 @@ CONFIG_KEY_LABELS = {
     "categories": "产品类别配置",
     "category_colors": "类别颜色映射",
     "signing_companies": "签署公司配置",
+    "contract_types": "合同类型配置",
     "customer_types": "客户类别配置",
 }
 
@@ -116,6 +120,7 @@ SYSTEM_CONFIG_DEFAULTS = {
     "categories": DEFAULT_CATEGORIES,  # 产品类别列表
     "category_colors": {},       # 类别颜色映射（动态生成）
     "signing_companies": DEFAULT_SIGNING_COMPANIES,  # 签署公司列表
+    "contract_types": DEFAULT_CONTRACT_TYPES,  # 合同类型列表
     "customer_types": DEFAULT_CUSTOMER_TYPES,        # 客户类别列表
 }
 
@@ -171,6 +176,14 @@ class CustomerTypeCreate(BaseModel):
     token: str
 
 class CustomerTypeUpdate(BaseModel):
+    name: str
+    token: str
+
+class ContractTypeCreate(BaseModel):
+    name: str
+    token: str
+
+class ContractTypeUpdate(BaseModel):
     name: str
     token: str
 
@@ -698,3 +711,62 @@ async def delete_customer_type(type_index: int, token: str):
     await _save_settings("customer_types", types)
     await write_log(admin["username"], f"删除了客户类别「{removed}」", "warning")
     return {"status": "success", "customerTypes": types}
+
+
+# ═══════════════════════════════════════════════════════════════
+#  12. 合同类型管理
+# ═══════════════════════════════════════════════════════════════
+
+async def get_contract_types():
+    """获取合同类型列表"""
+    settings = await _load_settings()
+    types = settings.get("contract_types", DEFAULT_CONTRACT_TYPES)
+    return {"contractTypes": types}
+
+
+async def add_contract_type(data: ContractTypeCreate):
+    """新增合同类型"""
+    admin = await verify_admin_token(data.token)
+    settings = await _load_settings()
+    types = list(settings.get("contract_types", DEFAULT_CONTRACT_TYPES))
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="类型名称不能为空")
+    if name in types:
+        raise HTTPException(status_code=400, detail="该类型已存在")
+    types.append(name)
+    await _save_settings("contract_types", types)
+    await write_log(admin["username"], f"新增了合同类型「{name}」", "info")
+    return {"status": "success", "contractTypes": types}
+
+
+async def update_contract_type(type_index: int, data: ContractTypeUpdate):
+    """修改合同类型名称"""
+    admin = await verify_admin_token(data.token)
+    settings = await _load_settings()
+    types = list(settings.get("contract_types", DEFAULT_CONTRACT_TYPES))
+    if type_index < 0 or type_index >= len(types):
+        raise HTTPException(status_code=400, detail="无效的类型索引")
+    old_name = types[type_index]
+    new_name = data.name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="类型名称不能为空")
+    if new_name != old_name and new_name in types:
+        raise HTTPException(status_code=400, detail="该类型已存在")
+    types[type_index] = new_name
+    await _save_settings("contract_types", types)
+    await write_log(admin["username"], f"将合同类型「{old_name}」修改为「{new_name}」", "info")
+    return {"status": "success", "contractTypes": types}
+
+
+async def delete_contract_type(type_index: int, token: str):
+    """删除合同类型"""
+    admin = await verify_admin_token(token)
+    settings = await _load_settings()
+    types = list(settings.get("contract_types", DEFAULT_CONTRACT_TYPES))
+    if type_index < 0 or type_index >= len(types):
+        raise HTTPException(status_code=400, detail="无效的类型索引")
+    removed = types.pop(type_index)
+    await _save_settings("contract_types", types)
+    await write_log(admin["username"], f"删除了合同类型「{removed}」", "warning")
+    return {"status": "success", "contractTypes": types}

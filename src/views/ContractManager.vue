@@ -126,9 +126,7 @@
             <el-option v-for="c in categories" :key="c" :label="c" :value="c" />
           </el-select>
           <el-select v-model="filters.contractType" placeholder="合同类型" clearable>
-            <el-option label="销售合同" value="销售合同" />
-            <el-option label="采购合同" value="采购合同" />
-            <el-option label="服务合同" value="服务合同" />
+            <el-option v-for="ct in contractTypes" :key="ct" :label="ct" :value="ct" />
           </el-select>
           <el-select v-model="filters.customerType" placeholder="客户类别" clearable>
             <el-option v-for="ct in customerTypes" :key="ct" :label="ct" :value="ct" />
@@ -231,7 +229,7 @@
     </main>
 
     <footer class="app-footer">
-      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.4.8-release</p>
+      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.4.9-release</p>
     </footer>
 
     <el-dialog
@@ -283,9 +281,7 @@
           <el-col :span="12">
             <el-form-item label="合同类型">
               <el-select v-model="form.contractType" style="width: 100%">
-                <el-option label="销售合同" value="销售合同" />
-                <el-option label="采购合同" value="采购合同" />
-                <el-option label="服务合同" value="服务合同" />
+                <el-option v-for="ct in contractTypes" :key="ct" :label="ct" :value="ct" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -446,7 +442,7 @@ const {
   showChangePwdDialog, changePwdLoading, changePwdForm,
   isSuperAdmin,
   handleUserChangePassword,
-  categories, customerTypes, signingCompanies, categoryColorMap,
+  categories, customerTypes, signingCompanies, contractTypes, categoryColorMap,
   customFieldDefs,
   statusList, statusTagMap,
   categoryStatistics,

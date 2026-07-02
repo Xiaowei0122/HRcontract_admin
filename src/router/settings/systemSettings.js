@@ -60,6 +60,11 @@ export function useSystemSettings() {
   const showCustTypeDialog = ref(false)
   const custTypeForm = reactive({ name: '', index: -1, isEdit: false })
 
+  // ── 合同类型管理 ──
+  const contractTypes = ref([])            // 合同类型列表
+  const showContractTypeDialog = ref(false)
+  const contractTypeForm = reactive({ name: '', index: -1, isEdit: false })
+
   // ── 系统配置表单：补全所有后端定义的 key ──
   const configForm = reactive({
     // 权限与预览控制
@@ -111,6 +116,17 @@ export function useSystemSettings() {
   const showRoleDialog = ref(false)
   const roleTargetUser = ref(null)
   const selectedRole = ref('')
+
+  // ── 编辑用户信息对话框 ──
+  const showEditUserDialog = ref(false)
+  const editUserLoading = ref(false)
+  const editUserForm = reactive({
+    username: '',
+    realName: '',
+    email: '',
+    phone: '',
+    department: '',
+  })
 
   // ── 操作日志 ──
   const logs = ref([])
@@ -533,6 +549,82 @@ export function useSystemSettings() {
   }
 
   // ═════════════════════════════════════════════════════════════
+  //  合同类型管理方法
+  // ═════════════════════════════════════════════════════════════
+
+  const fetchContractTypes = async () => {
+    try {
+      const res = await fetch('http://localhost:9080/api/settings/contract-types')
+      if (res.ok) {
+        const data = await res.json()
+        contractTypes.value = data.contractTypes || []
+        console.log('✅ 合同类型已加载:', contractTypes.value.length, '个')
+      }
+    } catch (e) { console.error('加载合同类型失败:', e) }
+  }
+
+  const openAddContractTypeDialog = () => {
+    contractTypeForm.name = ''
+    contractTypeForm.index = -1
+    contractTypeForm.isEdit = false
+    showContractTypeDialog.value = true
+  }
+
+  const openEditContractTypeDialog = (index) => {
+    contractTypeForm.name = contractTypes.value[index]
+    contractTypeForm.index = index
+    contractTypeForm.isEdit = true
+    showContractTypeDialog.value = true
+  }
+
+  const handleSaveContractType = async () => {
+    if (!contractTypeForm.name.trim()) {
+      ElMessage.warning('请输入类型名称')
+      return
+    }
+    try {
+      const body = { name: contractTypeForm.name.trim(), token: localStorage.getItem('token') }
+      let res
+      if (contractTypeForm.isEdit) {
+        res = await fetch(`http://localhost:9080/api/settings/contract-types/${contractTypeForm.index}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        })
+      } else {
+        res = await fetch('http://localhost:9080/api/settings/contract-types', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        })
+      }
+      if (res.ok) {
+        const data = await res.json()
+        contractTypes.value = data.contractTypes || []
+        ElMessage.success(contractTypeForm.isEdit ? '合同类型已更新' : '合同类型已新增')
+        showContractTypeDialog.value = false
+      } else {
+        const err = await res.json()
+        ElMessage.error(err.detail || '操作失败')
+      }
+    } catch (e) { ElMessage.error('网络请求失败') }
+  }
+
+  const handleDeleteContractType = async (index) => {
+    const name = contractTypes.value[index]
+    try {
+      await ElMessageBox.confirm(`确定删除合同类型「${name}」？`, '删除确认', {
+        confirmButtonText: '确认删除', cancelButtonText: '取消', type: 'error',
+      })
+      const res = await fetch(`http://localhost:9080/api/settings/contract-types/${index}?token=${encodeURIComponent(localStorage.getItem('token'))}`, { method: 'DELETE' })
+      if (res.ok) {
+        const data = await res.json()
+        contractTypes.value = data.contractTypes || []
+        ElMessage.success('合同类型已删除')
+      } else {
+        const err = await res.json()
+        ElMessage.error(err.detail || '删除失败')
+      }
+    } catch (e) { if (e !== 'cancel') ElMessage.error('删除操作失败') }
+  }
+
+  // ═════════════════════════════════════════════════════════════
   //  初始化
   // ═════════════════════════════════════════════════════════════
   const fetchInitialData = async () => {
@@ -561,8 +653,8 @@ export function useSystemSettings() {
 
       // 日志独立分页加载
       await fetchLogs()
-      // 字段定义 + 产品类别 + 签署公司
-      await Promise.all([fetchFieldDefinitions(), fetchCategories(), fetchSigningCompanies(), fetchCustomerTypes()])
+      // 字段定义 + 产品类别 + 签署公司 + 客户类别 + 合同类型
+      await Promise.all([fetchFieldDefinitions(), fetchCategories(), fetchSigningCompanies(), fetchCustomerTypes(), fetchContractTypes()])
     } catch (err) {
       console.error('❌ 系统设置初始化失败:', err)
       ElMessage.error('系统设置初始化失败，请检查后端服务')
@@ -756,6 +848,45 @@ export function useSystemSettings() {
     }
   }
 
+  // ── 编辑用户信息 ──
+  const openEditUserDialog = (row) => {
+    editUserForm.username = row.username || ''
+    editUserForm.realName = row.realName || ''
+    editUserForm.email = row.email || ''
+    editUserForm.phone = row.phone || ''
+    editUserForm.department = row.department || ''
+    showEditUserDialog.value = true
+  }
+
+  const handleSaveUserInfo = async () => {
+    editUserLoading.value = true
+    try {
+      const res = await fetch('http://localhost:9080/api/admin/update-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: editUserForm.username,
+          email: editUserForm.email,
+          phone: editUserForm.phone,
+          department: editUserForm.department,
+          token: localStorage.getItem('token'),
+        }),
+      })
+      if (res.ok) {
+        ElMessage.success('用户信息已更新')
+        showEditUserDialog.value = false
+        fetchUsers()
+      } else {
+        const err = await res.json()
+        ElMessage.error(err.detail || '更新失败')
+      }
+    } catch (e) {
+      ElMessage.error('网络请求失败')
+    } finally {
+      editUserLoading.value = false
+    }
+  }
+
   // 密码修改逻辑（需验证原密码）
   const handlePasswordUpdate = async () => {
     if (!pwdForm.oldPassword) {
@@ -822,10 +953,15 @@ export function useSystemSettings() {
     // 客户类别管理
     customerTypes, showCustTypeDialog, custTypeForm,
     openAddCustomerTypeDialog, openEditCustomerTypeDialog, handleSaveCustomerType, handleDeleteCustomerType,
+    // 合同类型管理
+    contractTypes, showContractTypeDialog, contractTypeForm,
+    openAddContractTypeDialog, openEditContractTypeDialog, handleSaveContractType, handleDeleteContractType,
     userList, userStatusFilter, userLoading,
     statusTagType, statusLabel,
     roleTagType, roleLabel, roleOptions,
     showRoleDialog, roleTargetUser, selectedRole,
+    showEditUserDialog, editUserLoading, editUserForm,
+    openEditUserDialog, handleSaveUserInfo,
     logs, logFilter, filteredLogs,
     logPage, logPageSize, logTotal,
     getLogCategoryLabel, getLogTagType, getLogColor,
