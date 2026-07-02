@@ -468,7 +468,8 @@ async def update_user_info(data: UpdateUserData):
 
     # 记日志
     target_realname = target.get("realName", "") or data.username
-    changed = "、".join(update_fields.keys())
+    field_labels = {"email": "邮箱", "phone": "手机号", "department": "部门"}
+    changed = "、".join(field_labels.get(k, k) for k in update_fields.keys())
     await write_log(admin["username"], f"编辑了用户「{target_realname}」的信息（{changed}）", "warning")
     return {"status": "success", "message": f"用户 {data.username} 信息已更新"}
 

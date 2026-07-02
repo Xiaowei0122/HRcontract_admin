@@ -237,7 +237,7 @@ const fetchTableData = async () => {
 
   try {
     // -------------------------------------------------------------
-    // 1. 构建参数（大看板统计和底部分页表格公用同一套筛选框参数，保证联动）
+    // 1. 构建参数（表格分页参数始终带筛选条件）
     // -------------------------------------------------------------
     const params = new URLSearchParams();
     params.append('role', role);
@@ -258,12 +258,22 @@ const fetchTableData = async () => {
     pageParams.append('page', currentPage.value);
     pageParams.append('size', pageSize.value);
 
+    // 看板统计参数：仅当管理员开启「看板数据随筛选更新」时才带入筛选条件
+    const statsParams = new URLSearchParams();
+    statsParams.append('role', role);
+    if (dashboardFollowFilter.value) {
+      // 将表格的筛选参数复制到看板统计请求
+      for (const [key, value] of params.entries()) {
+        if (key !== 'role') statsParams.append(key, value);
+      }
+    }
+
     // -------------------------------------------------------------
     // 2. 并发派发两个请求：一个要10条表格JSON，一个要大看板纯数字统计
     // -------------------------------------------------------------
     const [pageRes, statsRes] = await Promise.all([
       fetch(`http://localhost:9080/api/contracts?${pageParams.toString()}`),
-      fetch(`http://localhost:9080/api/contracts/dashboard-stats?${params.toString()}`)
+      fetch(`http://localhost:9080/api/contracts/dashboard-stats?${statsParams.toString()}`)
     ])
 
     if (pageRes.ok && statsRes.ok) {
@@ -713,6 +723,9 @@ const activeColumns = computed(() => allFields.value.filter(f => visibleFields.v
 // 自定义字段列表（从 allFields 中过滤 isCustom 标记的）
 const customFieldDefs = computed(() => allFields.value.filter(f => f.isCustom))
 // 新增：扩展filters对象以支持多维度筛选
+// 看板数据是否随筛选条件更新（默认关闭：筛选只影响表格和批量下载，不影响大看板统计）
+const dashboardFollowFilter = ref(false)
+
 const filters = reactive({
   keyword: '',
   status: '',
@@ -1032,7 +1045,7 @@ return {
   displayedTableData,
   toggleField, statistics,
   visibleFields, allFields, activeColumns,
-  filters, filteredData,
+  filters, filteredData, dashboardFollowFilter,
   handleSearch, handleResetFilters,
   fetchTableDataWithFilters,
   getCatData, legendGridConfig,

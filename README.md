@@ -383,6 +383,15 @@ python-multipart
 
 - **影响文件**：`auth_service.py`、`auth.py`、`settings_service.py`、`settings.py`、`systemSettings.js`、`SystemSettings.vue`、`contractManager.js`、`ContractManager.vue`
 
+- **[修复] 审计日志字段名中文化**
+  - 编辑用户信息时日志原输出英文字段名（`email、phone、department`），改为中文（`邮箱、手机号、部门`），方便管理员阅读
+
+- **[新增] 看板随筛选数据展示开关**
+  - 饼图标题右侧新增「看板随筛选数据展示」开关，默认关闭
+  - 关闭时：顶部统计卡片和饼图始终显示全量数据，不受筛选条件影响
+  - 开启后：看板数据随筛选条件联动更新，与表格过滤结果保持一致
+  - 筛选功能专注于帮用户快速定位合同和批量下载，不强制联动看板
+
 ---
 
 ### v1.4.8 (2026-07-01)

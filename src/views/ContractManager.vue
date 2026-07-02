@@ -79,6 +79,12 @@
       <el-card v-if="sysConfig.show_dashboard_charts !== false" shadow="never" class="chart-section">
         <div class="section-header">
           <span class="panel-title"><el-icon><PieChart /></el-icon> 合同分类占比分析</span>
+          <el-tooltip content="开启后，看板统计和饼图将随筛选条件联动更新；关闭时看板始终显示全量数据" placement="top">
+            <div class="dashboard-toggle">
+              <span class="toggle-label">看板随筛选数据展示</span>
+              <el-switch v-model="dashboardFollowFilter" size="small" />
+            </div>
+          </el-tooltip>
         </div>
         <div class="chart-layout">
           <div class="canvas-wrapper">
@@ -460,6 +466,7 @@ const {
   toggleField, statistics,
   visibleFields, allFields, activeColumns,
   filters,
+  dashboardFollowFilter,
   handleSearch, handleResetFilters,
   getCatData, legendGridConfig,
 } = useContractManager()
@@ -662,6 +669,22 @@ const {
 
 /* 搜索按钮靠右 */
 .search-btn { margin-left: auto !important; }
+
+/* 看板随筛选开关 — 饼图标题右侧 */
+.section-header {
+  display: flex;
+  align-items: center;
+}
+.dashboard-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.toggle-label {
+  font-size: 12px;
+  color: #909399;
+}
 
 /* 2. 弹窗 UI 更新 (对齐图 2) */
 :deep(.contract-dialog) { border-radius: 12px; }

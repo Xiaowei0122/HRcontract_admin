@@ -11,7 +11,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 # ═══════════════════════════════════════════════════════════════
 #  🔧  切换环境：改这一行即可  (False = 测试, True = 生产)
 # ═══════════════════════════════════════════════════════════════
-USE_PRODUCTION = True
+USE_PRODUCTION = False
 
 # ── 环境对应的 MongoDB 连接串 ──────────────────────────────────
 _TEST_URL = "mongodb://admin:Hr85550780@192.168.1.111:32768/?authSource=admin"
