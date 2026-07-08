@@ -325,16 +325,27 @@
                 </el-form-item>
 
                 <el-form-item label="日志保留天数">
-                  <el-select
-                    v-model="configForm.log_retention_days"
-                    style="width:120px"
-                    @change="saveConfig('log_retention_days', configForm.log_retention_days)"
-                  >
-                    <el-option label="7天" :value="7" />
-                    <el-option label="30天" :value="30" />
-                    <el-option label="90天" :value="90" />
-                    <el-option label="永久" :value="0" />
-                  </el-select>
+                  <div style="display: flex; align-items: center; gap: 20px;">
+                    <el-select
+                      v-model="configForm.log_retention_days"
+                      style="width:120px"
+                      @change="saveConfig('log_retention_days', configForm.log_retention_days)"
+                    >
+                      <el-option label="7天" :value="7" />
+                      <el-option label="30天" :value="30" />
+                      <el-option label="90天" :value="90" />
+                      <el-option label="永久" :value="0" />
+                    </el-select>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-size: 13px; color: #606266;">自动清理：</span>
+                      <el-switch
+                        v-model="configForm.log_auto_cleanup"
+                        active-text="开启" inactive-text="关闭"
+                        @change="saveConfig('log_auto_cleanup', configForm.log_auto_cleanup)"
+                      />
+                      <span class="tip-text">关闭后日志永久保存，不受保留天数限制</span>
+                    </div>
+                  </div>
                 </el-form-item>
 
                 <el-form-item label="管理员密码修改">
@@ -399,7 +410,7 @@
                 </template>
               </el-table-column>
               <el-table-column prop="lastLogin" label="最后登录" width="160" />
-              <el-table-column label="操作" width="300" fixed="right">
+              <el-table-column label="操作" width="370" fixed="right">
                 <template #default="{ row }">
                   <template v-if="row.status === 'pending'">
                     <el-button link type="success" size="small" @click="handleApprove(row.username, 'approve')">通过</el-button>
@@ -409,6 +420,9 @@
                     <el-button v-if="isSuperAdmin" link type="primary" size="small" @click="handleSetRole(row)">权限设置</el-button>
                     <el-button link type="info" size="small" @click="openEditUserDialog(row)">
                       <el-icon><EditPen /></el-icon> 编辑
+                    </el-button>
+                    <el-button link type="warning" size="small" @click="openResetPwdDialog(row)">
+                      <el-icon><Key /></el-icon> 重置密码
                     </el-button>
                     <el-button v-if="row.status !== 'disabled'" link type="warning" size="small" @click="handleToggleStatus(row.username, 'disable')">禁用</el-button>
                     <el-button v-else link type="success" size="small" @click="handleToggleStatus(row.username, 'enable')">启用</el-button>
@@ -424,9 +438,9 @@
           <el-tab-pane label="操作日志" name="logs">
             <div class="log-container">
               <!-- 日志筛选 -->
-              <div class="log-filter-bar" v-if="logTotal > 0">
-                <el-radio-group v-model="logFilter" size="small" @change="applyLogFilter">
-                  <el-radio-button value="all">全部 ({{ logTotal }})</el-radio-button>
+              <div class="log-filter-bar">
+                <el-radio-group v-model="logFilter" size="small" @change="handleLogFilterChange">
+                  <el-radio-button value="all">📋 全部</el-radio-button>
                   <el-radio-button value="contract">📄 合同</el-radio-button>
                   <el-radio-button value="user">👤 用户</el-radio-button>
                   <el-radio-button value="settings">⚙️ 设置</el-radio-button>
@@ -473,7 +487,7 @@
 
               <el-empty v-if="filteredLogs.length === 0" description="暂无操作日志">
                 <template v-if="logFilter !== 'all'">
-                  <el-button type="primary" link @click="logFilter = 'all'">查看全部日志</el-button>
+                  <el-button type="primary" link @click="handleLogFilterChange('all')">查看全部日志</el-button>
                 </template>
               </el-empty>
             </div>
@@ -662,12 +676,43 @@
         <el-button type="primary" @click="handleSaveUserInfo" :loading="editUserLoading">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- ═══════════════ 重置密码 — 管理员验证对话框 ═══════════════ -->
+    <el-dialog v-model="showResetPwdVerify" title="管理员身份验证" width="420px" :close-on-click-modal="false">
+      <el-alert type="warning" :closable="false" style="margin-bottom: 16px;">
+        即将重置用户 <strong>{{ resetPwdTargetName }}</strong> 的登录密码，请先验证管理员密码。
+      </el-alert>
+      <el-form :model="resetPwdForm" label-position="top">
+        <el-form-item label="管理员密码">
+          <el-input v-model="resetPwdForm.adminPassword" type="password" placeholder="请输入当前管理员密码" show-password />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showResetPwdVerify = false">取消</el-button>
+        <el-button type="primary" @click="handleResetPwdVerify" :loading="resetPwdLoading">验证并重置</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ═══════════════ 重置密码 — 新密码展示对话框 ═══════════════ -->
+    <el-dialog v-model="showResetPwdResult" title="密码重置成功" width="460px" :close-on-click-modal="false" :show-close="false">
+      <el-result icon="success" title="新密码已生成" sub-title="请截图保存或复制新密码后发送给用户，关闭后将无法再次查看。">
+        <template #extra>
+          <div class="new-pwd-display">
+            <el-input v-model="resetPwdResult" readonly size="large" style="font-family: monospace; font-size: 18px; text-align: center;" />
+            <el-button type="primary" size="small" style="margin-top: 10px;" @click="copyResetPwd">复制到剪贴板</el-button>
+          </div>
+        </template>
+      </el-result>
+      <template #footer>
+        <el-button type="primary" @click="showResetPwdResult = false">已保存，关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { onMounted } from 'vue'
-import { ArrowLeft, Lock, InfoFilled, EditPen, Delete, Plus } from '@element-plus/icons-vue'
+import { ArrowLeft, Lock, InfoFilled, EditPen, Delete, Plus, Key } from '@element-plus/icons-vue'
 import { useSystemSettings } from '../router/settings/systemSettings'
 
 const {
@@ -695,10 +740,13 @@ const {
   showRoleDialog, roleTargetUser, selectedRole,
   showEditUserDialog, editUserLoading, editUserForm,
   openEditUserDialog, handleSaveUserInfo,
+  showResetPwdVerify, resetPwdLoading, resetPwdForm, resetPwdTargetName,
+  openResetPwdDialog, handleResetPwdVerify,
+  showResetPwdResult, resetPwdResult, copyResetPwd,
   logs, logFilter, filteredLogs,
   logPage, logPageSize, logTotal,
   getLogColor, getLogTagType, getLogCategoryLabel,
-  applyLogFilter, fetchLogs, handleLogPageChange, handleLogSizeChange,
+  handleLogFilterChange, fetchLogs, handleLogPageChange, handleLogSizeChange,
   fetchInitialData, fetchUsers,
   saveConfig, saveDefaultFields,
   handleApprove, handleDeleteUser, handleToggleStatus,
@@ -901,5 +949,12 @@ onMounted(() => {
   .field-check-group {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+.new-pwd-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
 }
 </style>

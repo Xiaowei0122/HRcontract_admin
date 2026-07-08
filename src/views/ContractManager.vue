@@ -235,7 +235,7 @@
     </main>
 
     <footer class="app-footer">
-      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.4.9-release</p>
+      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.5.0-release</p>
     </footer>
 
     <el-dialog

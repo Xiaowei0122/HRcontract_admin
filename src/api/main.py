@@ -1,10 +1,12 @@
+import asyncio
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 # 导入路由模块
 from routers import auth, contracts, settings
 # 导入启动初始化函数
 from services.auth_service import init_admin_user
-from services.settings_service import init_settings
+from services.settings_service import init_settings, log_cleanup_loop
 
 app = FastAPI(title="鸿瑞办公后端系统")
 
@@ -12,6 +14,8 @@ app = FastAPI(title="鸿瑞办公后端系统")
 async def startup_event():
     await init_admin_user()
     await init_settings()
+    # 启动日志自动清理后台任务（每小时检查一次，删除超过保留天数的旧日志）
+    asyncio.create_task(log_cleanup_loop())
 
 # --- 全局跨域配置 (保持原状) ---
 app.add_middleware(

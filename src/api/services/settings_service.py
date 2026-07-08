@@ -3,13 +3,15 @@
 包含：常量定义、Pydantic 模型、辅助函数、所有系统设置/日志/密码管理处理函数
 原代码来源：routers/settings.py
 """
+import asyncio
 import re
+from datetime import datetime, timedelta
 from typing import Any, List
 
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from database import settings_collection, logs_collection, user_collection, write_log, resolve_display_name
+from database import settings_collection, logs_collection, user_collection, write_log, resolve_display_name, now_china
 from services.auth_service import verify_admin_token
 
 # ═══════════════════════════════════════════════════════════════
@@ -82,6 +84,7 @@ CONFIG_KEY_LABELS = {
     "session_timeout_minutes": "会话超时时间（分钟）",
     "contract_id_prefix": "合同ID前缀",
     "log_retention_days": "日志保留天数",
+    "log_auto_cleanup": "日志自动清理",
     "allow_user_delete": "允许普通用户删除合同",
     "custom_fields": "自定义合同字段",
     "categories": "产品类别配置",
@@ -113,6 +116,7 @@ SYSTEM_CONFIG_DEFAULTS = {
     "session_timeout_minutes": 0,   # 0 = 不限
     "contract_id_prefix": "HT",
     "log_retention_days": 30,
+    "log_auto_cleanup": True,  # 日志自动清理开关：开启则按保留天数清理，关闭则永久保存
     # 权限控制
     "allow_user_delete": False,  # 默认禁止普通用户删除合同
     # 自定义字段与类别
@@ -330,17 +334,59 @@ async def update_setting(item: ConfigUpdate):
     return {"status": "success", "message": f"已更新 {item.key}"}
 
 
-# ── 6. 操作日志（分页）───────────────────────────────────────
-async def get_logs(page: int = 1, pageSize: int = 20):
-    """分页获取系统操作日志，默认每页 20 条
+# ── 6. 操作日志（分页 + 分类筛选）────────────────────────────
+async def get_logs(page: int = 1, pageSize: int = 20, logType: str = "all"):
+    """分页获取系统操作日志，支持按分类筛选
+
+    分类匹配逻辑与前端 getLogCategory 保持一致：
+    - contract: action 含「合同」「附件」「导出」
+    - user:     action 含「用户」「注册」「登录」「密码」「角色」「禁用」「启用」
+    - settings: action 含「配置」「设置」「字段」「系统」
+    - system:   user 为 system/系统，或不属于以上任何分类
+    - all:      不筛选
 
     新日志（含 displayName 字段）直接使用写入时的历史快照；
     旧日志（无 displayName 字段）则按当前数据库状态解析显示名称。
     """
     try:
-        total = await logs_collection.count_documents({})
+        # 构建分类筛选条件（严格复现前端 getLogCategory 优先级链）
+        # 前端优先级: 1.system(user=system) > 2.contract > 3.user > 4.settings > 5.system(兜底)
+        # 后面的类别要 $not 排除前面类别的关键词，避免交叉匹配
+        if logType == "contract":
+            query = {
+                "user": {"$nin": ["system", "系统"]},
+                "action": {"$regex": "合同|附件|导出"}
+            }
+        elif logType == "user":
+            query = {
+                "user": {"$nin": ["system", "系统"]},
+                "$and": [
+                    {"action": {"$not": {"$regex": "合同|附件|导出"}}},
+                    {"action": {"$regex": "用户|注册|登录|密码|角色|禁用|启用"}},
+                ]
+            }
+        elif logType == "settings":
+            query = {
+                "user": {"$nin": ["system", "系统"]},
+                "$and": [
+                    {"action": {"$not": {"$regex": "合同|附件|导出|用户|注册|登录|密码|角色|禁用|启用"}}},
+                    {"action": {"$regex": "配置|设置|字段|系统"}},
+                ]
+            }
+        elif logType == "system":
+            query = {"$or": [
+                {"user": {"$in": ["system", "系统"]}},
+                {"$and": [
+                    {"user": {"$nin": ["system", "系统"]}},
+                    {"action": {"$not": {"$regex": "合同|附件|导出|用户|注册|登录|密码|角色|禁用|启用|配置|设置|字段|系统"}}}
+                ]}
+            ]}
+        else:
+            query = {}
+
+        total = await logs_collection.count_documents(query)
         skip = (page - 1) * pageSize
-        cursor = logs_collection.find().sort("time", -1).skip(skip).limit(pageSize)
+        cursor = logs_collection.find(query).sort("time", -1).skip(skip).limit(pageSize)
         logs = await cursor.to_list(length=pageSize)
         # 去掉 _id，并处理显示名称
         for log in logs:
@@ -770,3 +816,36 @@ async def delete_contract_type(type_index: int, token: str):
     await _save_settings("contract_types", types)
     await write_log(admin["username"], f"删除了合同类型「{removed}」", "warning")
     return {"status": "success", "contractTypes": types}
+
+
+# ═══════════════════════════════════════════════════════════════
+#  13. 日志自动清理（后台任务）
+# ═══════════════════════════════════════════════════════════════
+
+async def log_cleanup_loop():
+    """后台任务：每隔 24 小时检查一次，删除超过保留天数的旧日志（受 log_auto_cleanup 开关控制）"""
+    # 启动后先等 5 分钟，避免和初始化流程抢资源
+    await asyncio.sleep(300)
+
+    while True:
+        try:
+            settings = await _load_settings()
+            auto_cleanup = settings.get("log_auto_cleanup", True)
+            retention_days = settings.get("log_retention_days", 30)
+
+            if auto_cleanup and retention_days > 0:
+                cutoff_time = now_china() - timedelta(days=retention_days)
+                cutoff_str = cutoff_time.strftime("%Y-%m-%d %H:%M:%S")
+
+                result = await logs_collection.delete_many(
+                    {"time": {"$lt": cutoff_str}}
+                )
+
+                if result.deleted_count > 0:
+                    print(f"🧹 日志自动清理: 已删除 {result.deleted_count} 条超过 {retention_days} 天的旧日志（早于 {cutoff_str}）")
+                    await write_log("system", f"自动清理了 {result.deleted_count} 条超过 {retention_days} 天的旧日志", "info")
+        except Exception as e:
+            print(f"⚠️ 日志自动清理任务执行失败: {e}")
+
+        # 每 24 小时检查一次
+        await asyncio.sleep(86400)

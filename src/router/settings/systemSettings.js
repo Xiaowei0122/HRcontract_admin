@@ -1,5 +1,6 @@
 import { reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import CryptoJS from 'crypto-js'
 
 export function useSystemSettings() {
   const activeTab = ref('config')
@@ -83,6 +84,7 @@ export function useSystemSettings() {
     session_timeout_minutes: 0,
     contract_id_prefix: 'HT',
     log_retention_days: 30,
+    log_auto_cleanup: true,
     // 权限控制
     allow_user_delete: false,
   })
@@ -128,15 +130,72 @@ export function useSystemSettings() {
     department: '',
   })
 
+  // ── 重置密码对话框 ──
+  const showResetPwdVerify = ref(false)
+  const resetPwdLoading = ref(false)
+  const resetPwdTargetName = ref('')
+  const resetPwdTargetUsername = ref('')
+  const resetPwdForm = reactive({ adminPassword: '' })
+  const showResetPwdResult = ref(false)
+  const resetPwdResult = ref('')
+
+  const openResetPwdDialog = (row) => {
+    resetPwdTargetUsername.value = row.username
+    resetPwdTargetName.value = row.realName || row.username
+    resetPwdForm.adminPassword = ''
+    showResetPwdVerify.value = true
+  }
+
+  const handleResetPwdVerify = async () => {
+    if (!resetPwdForm.adminPassword) {
+      return ElMessage.warning('请输入管理员密码')
+    }
+    resetPwdLoading.value = true
+    try {
+      const adminPasswordHash = CryptoJS.SHA256(resetPwdForm.adminPassword).toString()
+      const res = await fetch('http://localhost:9080/api/admin/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetUsername: resetPwdTargetUsername.value,
+          adminPassword: adminPasswordHash,
+          token: localStorage.getItem('token'),
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        showResetPwdVerify.value = false
+        resetPwdResult.value = data.newPassword
+        showResetPwdResult.value = true
+        fetchUsers()
+      } else {
+        const err = await res.json()
+        ElMessage.error(err.detail || '密码重置失败')
+      }
+    } catch (e) {
+      ElMessage.error('网络请求失败')
+    } finally {
+      resetPwdLoading.value = false
+    }
+  }
+
+  const copyResetPwd = () => {
+    navigator.clipboard.writeText(resetPwdResult.value).then(() => {
+      ElMessage.success('新密码已复制到剪贴板')
+    }).catch(() => {
+      ElMessage.error('复制失败，请手动复制')
+    })
+  }
+
   // ── 操作日志 ──
   const logs = ref([])
   const logFilter = ref('all')
   const filteredLogs = ref([])
   const logPage = ref(1)
   const logPageSize = ref(20)
-  const logTotal = ref(0)
+  const logTotal = ref(0)       // 当前筛选条件下的总数（后端返回）
 
-  // 根据日志内容自动归类
+  // 根据日志内容自动归类（仅用于标签颜色/文字展示，筛选已由后端处理）
   const getLogCategory = (log) => {
     const action = log.action || ''
     const user = log.user || ''
@@ -162,26 +221,25 @@ export function useSystemSettings() {
     return map[getLogCategory(log)] || '#909399'
   }
 
-  const applyLogFilter = () => {
-    if (logFilter.value === 'all') {
-      filteredLogs.value = logs.value
-    } else {
-      filteredLogs.value = logs.value.filter(log => getLogCategory(log) === logFilter.value)
-    }
+  // 分类筛选切换：重置页码，重新请求后端（服务端筛选 + 分页）
+  const handleLogFilterChange = (type) => {
+    logFilter.value = type
+    logPage.value = 1
+    fetchLogs()
   }
 
-  // 分页加载日志
+  // 分页加载日志（分类筛选已由后端处理）
   const fetchLogs = async () => {
     try {
       const res = await fetch(
-        `http://localhost:9080/api/settings/logs?page=${logPage.value}&pageSize=${logPageSize.value}`
+        `http://localhost:9080/api/settings/logs?page=${logPage.value}&pageSize=${logPageSize.value}&logType=${logFilter.value}`
       )
       if (res.ok) {
         const data = await res.json()
         logs.value = data.logs || []
-        logTotal.value = data.total || 0
-        applyLogFilter()
-        console.log('✅ 操作日志已加载:', logs.value.length, '条 / 共', logTotal.value, '条')
+        logTotal.value = data.total || 0      // 后端返回的是筛选后的真实总数
+        filteredLogs.value = logs.value       // 无需客户端二次筛选
+        //console.log('✅ 操作日志已加载:', logs.value.length, '条 / 共', logTotal.value, '条')
       } else {
         console.error('❌ 操作日志加载失败:', res.status)
         logs.value = []
@@ -214,7 +272,7 @@ export function useSystemSettings() {
         const data = await res.json()
         fieldDefinitions.value = data.fields || []
         baseFieldKeys.value = data.baseFieldKeys || []
-        console.log('✅ 字段定义已加载:', fieldDefinitions.value.length, '个')
+        //console.log('✅ 字段定义已加载:', fieldDefinitions.value.length, '个')
       }
     } catch (e) { console.error('加载字段定义失败:', e) }
   }
@@ -322,7 +380,7 @@ export function useSystemSettings() {
         const data = await res.json()
         categories.value = data.categories || []
         categoryColors.value = data.categoryColors || {}
-        console.log('✅ 产品类别已加载:', categories.value.length, '个')
+        //console.log('✅ 产品类别已加载:', categories.value.length, '个')
       }
     } catch (e) { console.error('加载类别失败:', e) }
   }
@@ -406,7 +464,7 @@ export function useSystemSettings() {
       if (res.ok) {
         const data = await res.json()
         signingCompanies.value = data.signingCompanies || []
-        console.log('✅ 签署公司已加载:', signingCompanies.value.length, '个')
+        //console.log('✅ 签署公司已加载:', signingCompanies.value.length, '个')
       }
     } catch (e) { console.error('加载签署公司失败:', e) }
   }
@@ -482,7 +540,7 @@ export function useSystemSettings() {
       if (res.ok) {
         const data = await res.json()
         customerTypes.value = data.customerTypes || []
-        console.log('✅ 客户类别已加载:', customerTypes.value.length, '个')
+        //console.log('✅ 客户类别已加载:', customerTypes.value.length, '个')
       }
     } catch (e) { console.error('加载客户类别失败:', e) }
   }
@@ -558,7 +616,7 @@ export function useSystemSettings() {
       if (res.ok) {
         const data = await res.json()
         contractTypes.value = data.contractTypes || []
-        console.log('✅ 合同类型已加载:', contractTypes.value.length, '个')
+        //console.log('✅ 合同类型已加载:', contractTypes.value.length, '个')
       }
     } catch (e) { console.error('加载合同类型失败:', e) }
   }
@@ -648,13 +706,14 @@ export function useSystemSettings() {
       if (fieldsRes.ok) {
         const data = await fieldsRes.json()
         availableFields.value = data.availableFields || []
-        console.log('✅ 可用字段已加载:', availableFields.value.length, '个')
+        //console.log('✅ 可用字段已加载:', availableFields.value.length, '个')
       }
 
       // 日志独立分页加载
       await fetchLogs()
       // 字段定义 + 产品类别 + 签署公司 + 客户类别 + 合同类型
       await Promise.all([fetchFieldDefinitions(), fetchCategories(), fetchSigningCompanies(), fetchCustomerTypes(), fetchContractTypes()])
+      console.log('系统配置加载完成')
     } catch (err) {
       console.error('❌ 系统设置初始化失败:', err)
       ElMessage.error('系统设置初始化失败，请检查后端服务')
@@ -699,8 +758,7 @@ export function useSystemSettings() {
 
       if (response.ok) {
         ElMessage({ message: '默认显示字段已更新', type: 'success', plain: true })
-        const logRes = await fetch('http://localhost:9080/api/settings/logs')
-        if (logRes.ok) { logs.value = await logRes.json(); applyLogFilter() }
+        await fetchLogs()
       } else {
         const err = await response.json()
         ElMessage.error(err.detail || '字段更新失败')
@@ -962,10 +1020,13 @@ export function useSystemSettings() {
     showRoleDialog, roleTargetUser, selectedRole,
     showEditUserDialog, editUserLoading, editUserForm,
     openEditUserDialog, handleSaveUserInfo,
+    showResetPwdVerify, resetPwdLoading, resetPwdForm, resetPwdTargetName,
+    openResetPwdDialog, handleResetPwdVerify,
+    showResetPwdResult, resetPwdResult, copyResetPwd,
     logs, logFilter, filteredLogs,
     logPage, logPageSize, logTotal,
     getLogCategoryLabel, getLogTagType, getLogColor,
-    applyLogFilter, fetchLogs, handleLogPageChange, handleLogSizeChange,
+    handleLogFilterChange, fetchLogs, handleLogPageChange, handleLogSizeChange,
     fetchInitialData, fetchUsers,
     saveConfig, saveDefaultFields,
     handleApprove, handleDeleteUser, handleToggleStatus,

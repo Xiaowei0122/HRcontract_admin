@@ -439,7 +439,7 @@ const handleCurrentChange = (page) => {
 }
 
 const handleSave = async () => {
-  console.log("1. 启用保存，准备提交数据");
+  //console.log("1. 启用保存，准备提交数据");
   try {
     loading.value = true;
     isSubmitting.value = true;
@@ -516,7 +516,7 @@ const handleSave = async () => {
       : `http://localhost:9080/api/contracts/upload`;
 
     const method = isEdit ? 'put' : 'post';
-    console.log(`[数据网络同步] 操作模式: ${isEdit ? '修改' : '新建'}, 最终路由: ${url}`);
+    //console.log(`[数据网络同步] 操作模式: ${isEdit ? '修改' : '新建'}, 最终路由: ${url}`);
 
     const response = await axios[method](url, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
@@ -595,21 +595,44 @@ const handleDelete = async (row) => {
   }
 }
 
-// 单独下载附件
+// 单独下载附件（还原 ced298a 原始实现：fetch+blob+ObjectURL）
 const handleDownload = async (row) => {
   if (!row.contractId) {
     ElMessage.error('该合同数据没有关联的唯一编号(contractId)');
     return;
   }
 
-  // 💡 直接导航下载，不用 fetch+blob，避免 Chrome HTTP blob 安全警告
-  const downloadApiUrl = `/api/contracts/download-by-id/${row.contractId}`;
-  const a = document.createElement('a');
-  a.href = downloadApiUrl;
-  a.download = row.name ? `${row.name}.pdf` : `合同_${row.contractId}.pdf`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  try {
+    ElMessage.info('正在从 NAS 获取合同文件...');
+
+    const downloadApiUrl = `/api/contracts/download-by-id/${row.contractId}`;
+    const response = await fetch(downloadApiUrl);
+
+    if (response.status === 404) {
+      ElMessage.error('后端数据库或文件系统中未找到对应的电子合同文件');
+      return;
+    }
+    if (!response.ok) throw new Error('下载失败');
+
+    // 将后端返回的文件流转换为二进制内存对象 (Blob)
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+
+    const fileKey = row.contractId || row.contractNo || row._id;
+    a.download = row.name ? `${row.name}.pdf` : `合同_${fileKey}.pdf`;
+
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+
+    ElMessage.success('合同文件下载成功');
+  } catch (error) {
+    console.error('前端下载逻辑捕获到异常:', error);
+    ElMessage.error('文件下载失败，请检查后端服务或网络配置');
+  }
 };
 
 
@@ -621,7 +644,7 @@ const handleSelectionChange = (selection) => {
   selectedRows.value = selection
 }
 
-// 执行批量下载
+// 执行批量下载（还原 ced298a 原始实现：fetch+blob+ObjectURL）
 const handleBatchDownload = async () => {
   if (selectedRows.value.length === 0) return;
 
@@ -643,18 +666,40 @@ const handleBatchDownload = async () => {
     contractIds.forEach(id => params.append('contract_ids', id));
     params.append('operator', localStorage.getItem('realName') || localStorage.getItem('username') || 'admin');
 
-    // 💡 直接导航下载，不用 fetch+blob，避免 Chrome HTTP blob 安全警告
+    // 💡 使用相对路径走 nginx 反向代理，自动适配 http/https，避免跨域问题
     const batchDownloadUrl = `/api/contracts/batch-download?${params.toString()}`;
+
+    const response = await fetch(batchDownloadUrl);
+
+    // 🌟 核心修复：面向用户的状态码提示，告别技术术语 🌟
+    if (response.status === 404) {
+      ElMessage.error('未找到对应的合同档案记录，请刷新页面重试');
+      return;
+    }
+    if (response.status === 400) {
+      ElMessage.error('选中的合同在系统数据库中未找到对应的电子 PDF 文件');
+      return;
+    }
+    if (!response.ok) throw new Error('打包失败');
+
+    // 接收后端 StreamingResponse 返回的二进制 ZIP 文件流
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = batchDownloadUrl;
+    a.href = url;
+
+    // 规范 ZIP 压缩包命名
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     a.download = `合同批量下载_${dateStr}.zip`;
+
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+
+    ElMessage.success(`成功下载 ${contractIds.length} 份合同档案`);
   } catch (error) {
     console.error('批量下载流捕获异常:', error);
-    // 🌟 核心修复：用户看不懂群晖 Container，改成指导他们检查网络或联系管理员 🌟
     ElMessage.error('下载失败，请检查网络连接或联系系统管理员');
   }
 };
@@ -750,7 +795,7 @@ const handleSearch = async () => {
   if (filterCount === 0) {
     ElMessage.info('未选择任何筛选条件，即将为您显示全部数据');
   } else {
-    console.log(`执行搜索，已选择 ${filterCount} 个筛选条件：`, filters);
+    //console.log(`执行搜索，已选择 ${filterCount} 个筛选条件：`, filters);
   }
 
   currentPage.value = 1 // 恢复到第一页
@@ -758,7 +803,7 @@ const handleSearch = async () => {
 }
 
 const handleResetFilters = () => {
-  console.log('重置筛选条件');
+  //console.log('重置筛选条件');
   filters.keyword = '';
   filters.status = '';
   filters.category = '';
@@ -816,7 +861,7 @@ const fetchTableDataWithFilters = async () => {
 
       // 消成批量提示会话之提供了成功带流 专网阐排源须每一条数据湋是董手一次正优一龍
       ElMessage.success(`筛选成功，共找到 ${totalCount.value} 条合同`);
-      console.log('按条件查找成功', {total: totalCount.value, currentCount: contracts.value.length})
+      //console.log('按条件查找成功', {total: totalCount.value, currentCount: contracts.value.length})
     }
   } catch (error) {
     console.error('API 联动失败:', error)
@@ -946,7 +991,7 @@ const initPageData = async () => {
         visibleFields.value = [...serverDefaults]
         localStorage.setItem('visibleFields', JSON.stringify(serverDefaults))
         localStorage.setItem('cachedDefaultFields', JSON.stringify(serverDefaults))
-        console.log('🔄 管理员已更新默认显示字段，已同步:', serverDefaults)
+        //console.log('🔄 管理员已更新默认显示字段，已同步:', serverDefaults)
       } else if (userPref) {
         try {
           visibleFields.value = JSON.parse(userPref)
@@ -973,7 +1018,7 @@ const initPageData = async () => {
       const fData = await fieldsRes.json()
       if (fData.availableFields) {
         allFields.value = fData.availableFields
-        console.log('✅ 合同字段已同步:', allFields.value.length, '个')
+        //console.log('✅ 合同字段已同步:', allFields.value.length, '个')
       }
     }
     if (catRes.ok) {
@@ -981,28 +1026,28 @@ const initPageData = async () => {
       if (cData.categories) {
         categories.value = cData.categories
         categoryColorMap.value = cData.categoryColors || {}
-        console.log('✅ 产品类别已同步:', categories.value.length, '个')
+        //console.log('✅ 产品类别已同步:', categories.value.length, '个')
       }
     }
     if (scRes.ok) {
       const scData = await scRes.json()
       if (scData.signingCompanies) {
         signingCompanies.value = scData.signingCompanies
-        console.log('✅ 签署公司已同步:', signingCompanies.value.length, '个')
+        //console.log('✅ 签署公司已同步:', signingCompanies.value.length, '个')
       }
     }
     if (ctRes.ok) {
       const ctData = await ctRes.json()
       if (ctData.customerTypes) {
         customerTypes.value = ctData.customerTypes
-        console.log('✅ 客户类别已同步:', customerTypes.value.length, '个')
+        //console.log('✅ 客户类别已同步:', customerTypes.value.length, '个')
       }
     }
     if (coRes.ok) {
       const coData = await coRes.json()
       if (coData.contractTypes) {
         contractTypes.value = coData.contractTypes
-        console.log('✅ 合同类型已同步:', contractTypes.value.length, '个')
+        //console.log('✅ 合同类型已同步:', contractTypes.value.length, '个')
       }
     }
 

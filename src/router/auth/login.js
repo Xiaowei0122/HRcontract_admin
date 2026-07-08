@@ -1,5 +1,5 @@
 import { ref, reactive } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import CryptoJS from 'crypto-js'
 
@@ -36,7 +36,7 @@ export function useLogin() {
     }
 
     loading.value = true
-    console.log("准备发起请求...")
+    //console.log("准备发起请求...")
     try {
       const encryptedPassword = CryptoJS.SHA256(loginForm.password).toString();
       // 调用本地 FastAPI 后端
@@ -142,7 +142,7 @@ export function useLogin() {
       })
 
       const res = await response.json()
-      console.log("%c[同步状态]", "color: #f56c6c; font-weight: bold;", res.message)
+      //console.log("%c[同步状态]", "color: #f56c6c; font-weight: bold;", res.message)
 
     } catch (error) {
       console.warn("后端退出接口调用失败，执行本地强制清理")
@@ -158,6 +158,14 @@ export function useLogin() {
       router.push('/login')
     }
   }
+  // 忘记密码提示
+  const handleForgotPassword = () => {
+    ElMessageBox.alert('如忘记登录密码，请联系系统管理员进行密码重置。', '忘记密码', {
+      confirmButtonText: '知道了',
+      type: 'info',
+    })
+  }
+
   // 访客模式逻辑
   const enterAsGuest = async () => {
     try {
@@ -168,7 +176,7 @@ export function useLogin() {
       localStorage.setItem('userRole', res.userRole)
       localStorage.setItem('isGuest', String(res.isGuest))
 
-      console.log("%c[后端通知]", "color: #e6a23c;", res.message)
+      //console.log("%c[后端通知]", "color: #e6a23c;", res.message)
       ElMessage({
       message: res.message,
       type: 'warning'
@@ -183,6 +191,6 @@ export function useLogin() {
     activeTab, loading, rememberMe,
     showChangePwd, changePwdLoading, changePwdUsername, changePwdOldHash, changePwdForm,
     loginForm, rules,
-    handleLogin, submitChangePwd, skipChangePwd, handleLogout, enterAsGuest,
+    handleLogin, submitChangePwd, skipChangePwd, handleLogout, enterAsGuest, handleForgotPassword,
   }
 }

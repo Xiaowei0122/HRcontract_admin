@@ -4,14 +4,14 @@
 原代码来源：routers/auth.py
 """
 import secrets
+import string
 import hashlib
-from datetime import datetime
 from typing import Optional
 
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from database import user_collection, contract_collection, write_log
+from database import user_collection, contract_collection, write_log, now_china
 from services.shared import get_guest_data_limit
 
 # ═══════════════════════════════════════════════════════════════
@@ -69,6 +69,11 @@ class UpdateUserData(BaseModel):
     department: str = ""
     token: str
 
+class ResetPasswordData(BaseModel):
+    targetUsername: str   # 要重置密码的用户
+    adminPassword: str    # 管理员密码（SHA256 哈希，用于二次验证）
+    token: str            # 管理员 token
+
 class ChangePasswordData(BaseModel):
     username: str
     oldPassword: str
@@ -94,7 +99,7 @@ async def init_admin_user():
             "email": "",
             "phone": "",
             "department": "数字化工程部",
-            "registerTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "registerTime": now_china().strftime("%Y-%m-%d %H:%M:%S"),
             "lastLogin": None,
             "current_token": None,
             "is_default_password": True
@@ -106,7 +111,7 @@ async def init_admin_user():
         if "status" not in admin_user:
             missing["status"] = "active"
         if "registerTime" not in admin_user:
-            missing["registerTime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            missing["registerTime"] = now_china().strftime("%Y-%m-%d %H:%M:%S")
         if "department" not in admin_user:
             missing["department"] = "数字化工程部"
         if missing:
@@ -130,6 +135,19 @@ async def verify_admin_token(token: str):
     if status not in ("active",):
         raise HTTPException(status_code=403, detail="管理员账号已被禁用")
     return admin
+
+
+def generate_random_password(length: int = 12) -> str:
+    """生成高复杂度随机密码：包含大小写字母、数字和特殊符号"""
+    chars = string.ascii_letters + string.digits + "!@#$%^&*"
+    while True:
+        pwd = ''.join(secrets.choice(chars) for _ in range(length))
+        # 确保密码包含至少一个大写、一个小写、一个数字、一个特殊符号
+        if (any(c.islower() for c in pwd)
+            and any(c.isupper() for c in pwd)
+            and any(c.isdigit() for c in pwd)
+            and any(c in "!@#$%^&*" for c in pwd)):
+            return pwd
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -163,7 +181,7 @@ async def login_user(data: LoginData):
         raise HTTPException(status_code=403, detail="您的账号已被管理员禁用，请联系管理员")
 
     # --- 业务逻辑：更新最后登录时间 ---
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_time = now_china().strftime("%Y-%m-%d %H:%M:%S")
     # --- 2. 随机 Token验证 ---
     # 生成一个 32 字节的随机字符串，安全等级极高
     dynamic_token = f"hr_token_{secrets.token_urlsafe(32)}"
@@ -281,7 +299,7 @@ async def register_user(data: RegisterData):
         "email": data.email.strip() if data.email else "",
         "phone": data.phone.strip() if data.phone else "",
         "department": data.department.strip() if data.department else "",
-        "registerTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "registerTime": now_china().strftime("%Y-%m-%d %H:%M:%S"),
         "lastLogin": None,
         "current_token": None,
         "is_default_password": False
@@ -474,7 +492,46 @@ async def update_user_info(data: UpdateUserData):
     return {"status": "success", "message": f"用户 {data.username} 信息已更新"}
 
 
-# --- 12. 验证 Token 有效性 ---
+# --- 12. 管理员重置用户密码 ---
+async def reset_user_password(data: ResetPasswordData):
+    """管理员重置用户密码（需先验证管理员密码），生成高复杂度随机密码并明文返回"""
+    admin = await verify_admin_token(data.token)
+
+    # 二次验证：校验管理员密码
+    admin_user = await user_collection.find_one({"username": admin["username"]})
+    if not admin_user or admin_user.get("password") != data.adminPassword.strip():
+        raise HTTPException(status_code=403, detail="管理员密码验证失败")
+
+    # 不允许重置超级管理员 admin 的密码
+    if data.targetUsername.strip() == "admin":
+        raise HTTPException(status_code=400, detail="不能通过此功能重置超级管理员的密码，请使用修改密码功能")
+
+    target = await user_collection.find_one({"username": data.targetUsername.strip()})
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    # 生成高复杂度随机密码
+    new_password = generate_random_password()
+    new_password_hash = hashlib.sha256(new_password.encode()).hexdigest()
+
+    # 更新密码并清除 token（强制用户重新登录）
+    await user_collection.update_one(
+        {"username": data.targetUsername.strip()},
+        {"$set": {"password": new_password_hash, "current_token": None, "is_default_password": True}}
+    )
+
+    # 记日志
+    target_realname = target.get("realName", "") or data.targetUsername
+    await write_log(admin["username"], f"重置了用户「{target_realname}」的登录密码", "warning")
+    return {
+        "status": "success",
+        "message": f"用户 {data.targetUsername} 的密码已重置",
+        "newPassword": new_password,
+        "targetRealName": target_realname,
+    }
+
+
+# --- 13. 验证 Token 有效性 ---
 async def verify_user_token(data: VerifyTokenData):
     """前端页面加载时校验 token 是否仍然有效，防止旧会话绕过登录"""
     if not data.token:

@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # 1. 独立的数据库容器
+  # 1. 数据库容器（MongoDB）
   mongo-1:
     image: mongo:latest
     container_name: mongo-1
@@ -17,35 +17,53 @@ services:
     networks:
       - hr_network
 
-  # 2. 独立的后端容器 (FastAPI)
-  hr-backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend   # 💡 显式指定后端 Dockerfile 脚本
-    container_name: hr-backend
+  # 2. 对象存储容器（MinIO）
+  minio-1:
+    image: minio/minio:latest
+    container_name: minio-1
     restart: always
     ports:
-      - "9080:9080"                    # 暴露群晖的 9080 端口供直接调测后端
-    environment:
-      # 💡 容器内网无缝互连
-      MONGO_URL: "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin"
-      CONTRACT_UPLOAD_DIR: "/contracts"
-    depends_on:
-      - mongo-1
+      - "9000:9000"                      # API 端口
+      - "9001:9001"                      # Web 控制台端口
     volumes:
-      - /volume1/contracts:/contracts
+      - minio-data:/data
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: Hrbg@85550780
+      TZ: Asia/Shanghai
+    command: server /data --console-address ":9001"
     networks:
       - hr_network
 
-  # 3. 独立的前端容器 (Vue + Nginx)
+  # 3. 后端容器（FastAPI）
+  hr-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: hr-backend
+    restart: always
+    ports:
+      - "9080:9080"
+    environment:
+      # MongoDB 连接（容器内网）
+      MONGO_URL: "mongodb://admin:Hr85550780@mongo-1:27017/?authSource=admin"
+      # MinIO 连接（容器内网）
+      MINIO_URL: "minio-1:9000"
+    depends_on:
+      - mongo-1
+      - minio-1
+    networks:
+      - hr_network
+
+  # 4. 前端容器（Vue + Nginx）
   hr-frontend:
     build:
       context: .
-      dockerfile: Dockerfile.frontend  # 💡 显式指定前端 Dockerfile 脚本
+      dockerfile: Dockerfile.frontend
     container_name: hrcontract-frontend
     restart: always
     ports:
-      - "3980:80"                      # 💡 用户在浏览器里直接访问这个 3980 端口
+      - "3980:80"
     depends_on:
       - hr-backend
     networks:
@@ -57,3 +75,4 @@ networks:
 
 volumes:
   mongo-data:
+  minio-data:

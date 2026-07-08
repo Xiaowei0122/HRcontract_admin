@@ -34,7 +34,7 @@
             
             <div class="form-options">
               <el-checkbox v-model="rememberMe">记住我</el-checkbox>
-              <el-link type="primary" :underline="false">忘记密码？</el-link>
+              <el-link type="primary" :underline="false" @click="handleForgotPassword">忘记密码？</el-link>
             </div>
 
             <el-button type="primary" class="submit-btn" @click="handleLogin" :loading="loading">
@@ -62,7 +62,7 @@
     </el-card>
 
     <footer class="login-footer">
-      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.4.9-release</p>
+      <p>© 2026 鸿瑞办公 · 数字化工程部 系统版本：v1.5.0-release</p>
     </footer>
 
     <!-- 修改默认密码对话框 -->
@@ -97,7 +97,7 @@ const {
   activeTab, loading, rememberMe,
   showChangePwd, changePwdLoading, changePwdForm,
   loginForm, rules,
-  handleLogin, submitChangePwd, skipChangePwd, enterAsGuest,
+  handleLogin, submitChangePwd, skipChangePwd, enterAsGuest, handleForgotPassword,
 } = useLogin()
 </script>
 

@@ -5,13 +5,20 @@
 USE_PRODUCTION 这一个变量，或设置环境变量 MONGO_URL。
 """
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from motor.motor_asyncio import AsyncIOMotorClient
+
+# 中国时区 UTC+8 — 所有模块统一使用此函数获取当前时间
+CHINA_TZ = timezone(timedelta(hours=8))
+
+def now_china() -> datetime:
+    """返回中国时区的当前时间（UTC+8）"""
+    return datetime.now(CHINA_TZ)
 
 # ═══════════════════════════════════════════════════════════════
 #  🔧  切换环境：改这一行即可  (False = 测试, True = 生产)
 # ═══════════════════════════════════════════════════════════════
-USE_PRODUCTION = False
+USE_PRODUCTION = True
 
 # ── 环境对应的 MongoDB 连接串 ──────────────────────────────────
 _TEST_URL = "mongodb://admin:Hr85550780@192.168.1.111:32768/?authSource=admin"
@@ -25,6 +32,40 @@ client: AsyncIOMotorClient = AsyncIOMotorClient(MONGO_URL)
 database = client.HRcontract
 
 print(f"📡 MongoDB 已连接: {'生产' if USE_PRODUCTION else '测试'}环境 → {MONGO_URL.split('@')[1].split('?')[0] if '@' in MONGO_URL else MONGO_URL}")
+
+
+# ═══════════════════════════════════════════════════════════════
+#  📦  MinIO 对象存储配置（与 MongoDB 共用 USE_PRODUCTION 开关）
+# ═══════════════════════════════════════════════════════════════
+_MINIO_TEST_URL = "192.168.1.111:9000"
+_MINIO_PROD_URL = "minio-1:9000"
+MINIO_URL = os.getenv("MINIO_URL", _MINIO_PROD_URL if USE_PRODUCTION else _MINIO_TEST_URL)
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "admin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "Hrbg@85550780")
+MINIO_BUCKET = os.getenv("MINIO_BUCKET", "contracts")
+MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
+
+from minio import Minio
+from minio.error import S3Error
+
+minio_client = Minio(
+    MINIO_URL,
+    access_key=MINIO_ACCESS_KEY,
+    secret_key=MINIO_SECRET_KEY,
+    secure=MINIO_SECURE,
+)
+
+# 确保 MinIO Bucket 存在（程序启动时自动创建）
+try:
+    if not minio_client.bucket_exists(MINIO_BUCKET):
+        minio_client.make_bucket(MINIO_BUCKET)
+        print(f"📦 MinIO Bucket '{MINIO_BUCKET}' 已创建")
+    else:
+        print(f"📦 MinIO Bucket '{MINIO_BUCKET}' 已就绪")
+except Exception as e:
+    print(f"⚠️ MinIO 连接失败: {e}")
+
+print(f"📦 MinIO 对象存储已配置: {'生产' if USE_PRODUCTION else '测试'}环境 → {MINIO_URL}")
 
 
 # ── 便捷函数：惰性获取集合 ────────────────────────────────────
@@ -82,7 +123,7 @@ async def write_log(user: str, action: str, log_type: str = "warning") -> None:
     display_name = await resolve_display_name(user)
 
     entry = {
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "time": now_china().strftime("%Y-%m-%d %H:%M:%S"),
         "user": user,               # 原始 username，用于旧日志兼容
         "displayName": display_name, # 写入时解析的显示名称，历史快照不会变
         "action": action,

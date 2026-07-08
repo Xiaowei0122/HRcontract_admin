@@ -8,6 +8,7 @@ from services.contract_service import (
     get_dashboard_stats, get_contracts,
     upload_contract, update_contract, delete_contract,
     batch_download_contracts, download_contract_by_id,
+    check_contract_file_exists, check_batch_files_exist,
 )
 
 # 路由配置
@@ -140,7 +141,21 @@ async def batch_download(
     return await batch_download_contracts(contract_ids, operator)
 
 
-# --- 7. 单个合同附件下载 ---
+# --- 7. 单个合同附件下载（还原 ced298a 原始实现）---
 @router.get("/contracts/download-by-id/{contract_id}")
 async def download_by_id(contract_id: str):
     return await download_contract_by_id(contract_id)
+
+
+# --- 8. 检查单个合同文件是否存在（前端下载前的预检）---
+@router.get("/contracts/check-file/{contract_id}")
+async def check_file(contract_id: str):
+    """轻量检查：返回 JSON {exists, fileName, message}，不传输文件流"""
+    return await check_contract_file_exists(contract_id)
+
+
+# --- 9. 批量检查合同文件是否存在 ---
+@router.get("/contracts/check-files")
+async def check_files(contract_ids: List[str] = Query(...)):
+    """批量预检：返回 JSON 含各文件就绪状态，前端据此决定是否触发打包下载"""
+    return await check_batch_files_exist(contract_ids)

@@ -4,36 +4,28 @@
 原代码来源：routers/contracts.py
 """
 import json
-import os
-import shutil
 import zipfile
-from io import BytesIO
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
+from urllib.parse import quote
 from typing import List, Optional
 
 from fastapi import HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from bson import ObjectId
+from minio.error import S3Error
 
-from database import contract_collection, settings_collection, write_log, resolve_display_name
+from database import (
+    contract_collection, settings_collection,
+    write_log, resolve_display_name, now_china,
+    minio_client, MINIO_BUCKET,
+)
 from services.shared import get_guest_data_limit
 
 # ═══════════════════════════════════════════════════════════════
-#  文件存储路径（原封不动提取）
-# ═══════════════════════════════════════════════════════════════
-# NAS 文件保存路径（推荐使用环境变量 CONTRACT_UPLOAD_DIR 指定）
-# 本地测试：默认使用项目根目录下的 contracts 文件夹
-# 生产环境：docker-compose.yml 中设置 CONTRACT_UPLOAD_DIR=/contracts，映射到 NAS
-# services -> api -> src -> 项目根
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-UPLOAD_DIR = Path(os.getenv("CONTRACT_UPLOAD_DIR", str(PROJECT_ROOT / "contracts")))
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-# ═══════════════════════════════════════════════════════════════
-#  Pydantic 数据模型（原封不动提取）
-# ═══════════════════════════════════════════════════════════════
+#  Pydantic 数据模型
 class ContractData(BaseModel):
     contractId: Optional[str] = None
     name: str
@@ -256,20 +248,25 @@ async def upload_contract(
 ):
     try:
         # --- A. 生成系统时间字段 ---
-        now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_time = now_china().strftime("%Y-%m-%d %H:%M:%S")
 
-        # --- B. 处理文件保存到 NAS ---
+        # --- B. 处理文件上传到 MinIO ---
         file_url = ""
         file_name = None
         file_path = None
         if file and file.filename:
-            safe_name = Path(file.filename).name
-            file_name = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
-            target_path = UPLOAD_DIR / file_name
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(target_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            file_path = str(target_path)
+            # 使用 contractId + 时间戳 + 扩展名，纯 ASCII，规避中文编码问题
+            ext = Path(file.filename).suffix or ".pdf"
+            file_name = f"{contractId}_{now_china().strftime('%Y%m%d%H%M%S')}{ext}"
+            file_content = await file.read()
+            minio_client.put_object(
+                MINIO_BUCKET,
+                file_name,
+                BytesIO(file_content),
+                len(file_content),
+                content_type=file.content_type or "application/octet-stream",
+            )
+            file_path = file_name  # MinIO object name
             file_url = f"/api/contracts/file/{file_name}"
 
         # --- C. 组装存入 MongoDB 的真数据 (严格对应图 2 字段) ---
@@ -291,7 +288,7 @@ async def upload_contract(
             "servicePeriod": servicePeriod,
             "remark": remark,
             "fileUrl": file_url,           # 附件访问路径
-            "fileName": file_name if file and file.filename else None,  # 存储带时间戳的物理文件名，与磁盘一致
+            "fileName": file_name if file and file.filename else None,  # MinIO 对象名（带时间戳前缀，全局唯一）
             "filePath": file_path,
             "createTime": now_time,         # 创建时间
             "updateTime": now_time,         # 更新时间
@@ -307,7 +304,7 @@ async def upload_contract(
             except json.JSONDecodeError:
                 custom_data = {}
 
-        # --- E. 写入 NAS 数据库 ---
+        # --- E. 写入 MongoDB ---
         doc_to_insert = {**new_doc}
         if custom_data:
             doc_to_insert["customFields"] = custom_data
@@ -375,29 +372,35 @@ async def update_contract(
             "servicePeriod": servicePeriod,
             "remark": remark,
             "operator": await resolve_display_name(operator if operator else "admin"),
-            "updateTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S") # 记录修改时间
+            "updateTime": now_china().strftime("%Y-%m-%d %H:%M:%S") # 记录修改时间
         }
 
         # 3. 处理文件上传（如果用户在编辑时重新选了新文件）
         if file and file.filename:
-            # 🔧 先查旧合同是否有物理文件，有则删除，避免 NAS 空间膨胀
+            # 🔧 先查旧合同，从 MinIO 删除旧文件，避免存储空间膨胀
             existing = await contract_collection.find_one({"_id": ObjectId(contract_id)})
-            if existing and existing.get("filePath"):
-                old_path = Path(existing["filePath"])
-                if old_path.exists():
-                    old_path.unlink()
-                    print(f"🗑️ 已删除旧物理文件: {old_path}")
+            if existing and existing.get("fileName"):
+                try:
+                    minio_client.remove_object(MINIO_BUCKET, existing["fileName"])
+                    print(f"🗑️ 已删除 MinIO 旧文件: {existing['fileName']}")
+                except S3Error as e:
+                    print(f"⚠️ 删除 MinIO 旧文件失败: {e}")
 
-            original_filename = file.filename
-            # 使用时间戳前缀保证物理文件名唯一，与上传逻辑保持一致
-            file_name = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{Path(original_filename).name}"
+            # 使用 contractId + 时间戳 + 扩展名，纯 ASCII，与上传逻辑一致
+            ext = Path(file.filename).suffix or ".pdf"
+            file_name = f"{contractId if contractId else contract_id}_{now_china().strftime('%Y%m%d%H%M%S')}{ext}"
 
-            file_path = UPLOAD_DIR / file_name
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
+            file_content = await file.read()
+            minio_client.put_object(
+                MINIO_BUCKET,
+                file_name,
+                BytesIO(file_content),
+                len(file_content),
+                content_type=file.content_type or "application/octet-stream",
+            )
 
-            # 将新的文件路径和名称同步进更新字典里（字段名必须与上传时一致）
-            update_data["filePath"] = str(file_path)
+            # 将新的文件对象名和路径同步进更新字典里
+            update_data["filePath"] = file_name
             update_data["fileName"] = file_name
             update_data["fileUrl"] = f"/api/contracts/file/{file_name}"
 
@@ -442,20 +445,21 @@ async def delete_contract(contract_id: str, operator: Optional[str] = None):
         else:
             query = {"$or": [{"contractId": contract_id}, {"contractNo": contract_id}]}
 
-        # 🔧 删除前先查物理文件并删除，避免 NAS 空间膨胀
+        # 🔧 删除前先删 MinIO 中的文件，避免存储空间膨胀
         contract = await contract_collection.find_one(query)
-        if contract and contract.get("filePath"):
-            old_path = Path(contract["filePath"])
-            if old_path.exists():
-                old_path.unlink()
-                print(f"🗑️ 已删除物理文件: {old_path}")
+        if contract and contract.get("fileName"):
+            try:
+                minio_client.remove_object(MINIO_BUCKET, contract["fileName"])
+                print(f"🗑️ 已删除 MinIO 文件: {contract['fileName']}")
+            except S3Error as e:
+                print(f"⚠️ 删除 MinIO 文件失败: {e}")
 
         # 逻辑删除：只标记为已删除，保留历史数据（同时记录最后操作人）
         result = await contract_collection.update_one(
             query,
             {"$set": {
                 "isDeleted": True,
-                "updateTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "updateTime": now_china().strftime("%Y-%m-%d %H:%M:%S"),
                 "operator": await resolve_display_name(operator if operator else "admin"),
             }}
         )
@@ -491,28 +495,24 @@ async def batch_download_contracts(contract_ids: List[str], operator: Optional[s
         if not contracts_list:
             raise HTTPException(status_code=404, detail="未找到任何有效的合同记录")
 
-        # 2. 🌟 核心修复：根据规范，去 UPLOAD_DIR 下精准匹配 file_name 🌟
+        # 2. 🌟 核心修复：从 MinIO 中精准匹配文件 🌟
         files_to_zip = []
         for c in contracts_list:
-            # 从数据库中取出当初上传成功时写入的真实物理文件名（包含日期和名称的长文件名）
+            # 从数据库中取出 MinIO 对象名（当初上传时写入的真实物理文件名）
             db_file_name = c.get("fileName")
 
             if db_file_name:
-                # 安全过滤文件名，利用 Path().name 确保不发生目录穿越攻击
-                safe_name = Path(db_file_name).name
-                # 拼接成容器内的绝对物理路径：/app/api/contracts/2026xxxx_测试合同.pdf
-                target_path = (UPLOAD_DIR / safe_name).resolve()
-
-                # 安全校验：确保文件确实存在于挂载的 NAS 目录下
-                if target_path.exists() and str(target_path).startswith(str(UPLOAD_DIR.resolve())):
+                try:
+                    # 检查 MinIO 中文件是否存在
+                    minio_client.stat_object(MINIO_BUCKET, db_file_name)
                     files_to_zip.append({
-                        "path": target_path,
-                        # 压缩包里显示的名字，优先用合同本来好听的名字，没有就用长物理名
-                        "display_name": f"{c.get('name', safe_name)}.pdf" if not safe_name.endswith('.pdf') else safe_name,
+                        "object_name": db_file_name,
+                        # 压缩包里显示的名字，始终使用合同名称
+                        "display_name": f"{c.get('name', c.get('contractId', '合同'))}.pdf",
                         "contractNo": c.get("contractNo", "未知编号")
                     })
-                else:
-                    print(f"⚠️ 该文件数据库有记录，但未在文件系统中找到文件: {target_path}")
+                except S3Error:
+                    print(f"⚠️ 该文件数据库有记录，但 MinIO 中未找到: {db_file_name}")
 
         if not files_to_zip:
             raise HTTPException(status_code=400, detail="选中的合同文件均未在数据库中找到文件，无法打包")
@@ -530,8 +530,18 @@ async def batch_download_contracts(contract_ids: List[str], operator: Optional[s
                     archive_name = f"{f['contractNo']}_{original_name}"
                 existing_names.add(archive_name)
 
-                # 写入压缩包
-                zip_file.write(f["path"], archive_name)
+                # 从 MinIO 读取文件并写入压缩包
+                response = None
+                try:
+                    response = minio_client.get_object(MINIO_BUCKET, f["object_name"])
+                    zip_file.writestr(archive_name, response.data)
+                except S3Error as e:
+                    print(f"⚠️ 从 MinIO 读取文件失败: {f['object_name']}, {e}")
+                    continue
+                finally:
+                    if response:
+                        response.close()
+                        response.release_conn()
 
         zip_buffer.seek(0)
 
@@ -539,10 +549,20 @@ async def batch_download_contracts(contract_ids: List[str], operator: Optional[s
         op_user = operator if operator else "admin"
         await write_log(op_user, f"批量导出了 {len(files_to_zip)} 份合同附件（ZIP压缩包）", "info")
 
-        # 5. 返回流式响应
+        # 5. 返回流式响应（使用分块生成器，避免 BytesIO 按换行符迭代损坏二进制数据）
         zip_name = f"contracts_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.zip"
+
+        def zip_stream():
+            """分块读取 BytesIO，避免 __iter__ 按 \\n 分割破坏 ZIP 二进制"""
+            zip_buffer.seek(0)
+            while True:
+                chunk = zip_buffer.read(64 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+
         return StreamingResponse(
-            zip_buffer,
+            zip_stream(),
             media_type="application/zip",
             headers={
                 "Content-Disposition": f"attachment; filename={zip_name}",
@@ -556,33 +576,50 @@ async def batch_download_contracts(contract_ids: List[str], operator: Optional[s
         raise HTTPException(status_code=500, detail=f"批量打包失败: {str(e)}")
 
 
-# --- 7. 单个合同附件下载 ---
+# --- 7. 单个合同附件下载（还原 ced298a 原始实现）---
 async def download_contract_by_id(contract_id: str):
     try:
-        # 1. 🔍 拿着唯一的 contract_id 去 MongoDB 中查找对应的合同数据
+        # 1. 🔍 查 MongoDB
         contract = await contract_collection.find_one({"contractId": contract_id, "isDeleted": False})
-
-        # 2. 校验合同是否存在，以及当时上传时有没有成功写入 fileName 字段
         if not contract or not contract.get("fileName"):
             raise HTTPException(status_code=444, detail="该合同未关联任何文件或文件记录不存在")
 
-        # 3. 🎯 从数据库直接取出真实的长物理文件名（如 20260613_...pdf）
+        # 2. 🎯 从 MinIO 获取文件流
         real_file_name = contract["fileName"]
 
-        # 4. 🦺 依旧维持你原有的高安全性路径防穿越校验
-        safe_name = Path(real_file_name).name
-        target_path = (UPLOAD_DIR / safe_name).resolve()
+        # 先确认文件在 MinIO 中存在
+        try:
+            minio_client.stat_object(MINIO_BUCKET, real_file_name)
+        except S3Error:
+            raise HTTPException(status_code=404, detail="合同附件文件未找到")
 
-        if not str(target_path).startswith(str(UPLOAD_DIR.resolve())) or not target_path.exists():
-            raise FileNotFoundError
-
-        # 5. 📥 返回文件流，这里的 filename 建议用合同的真实名称，让浏览器下载落盘时更好看
+        # 3. 📥 以流式响应返回文件（使用 read() 分块，避免 stream() 行为不一致）
         download_display_name = f"{contract.get('name', contract_id)}.pdf"
+        # RFC 5987 编码：HTTP 头只支持 ASCII，中文文件名必须 URL-encode
+        encoded_filename = quote(download_display_name, safe='')
 
-        return FileResponse(
-            target_path,
-            filename=download_display_name,
-            media_type="application/octet-stream"
+        def file_stream():
+            """MinIO 文件流生成器 — 显式 read(64KB) 分块，自动释放连接"""
+            response = None
+            try:
+                response = minio_client.get_object(MINIO_BUCKET, real_file_name)
+                while True:
+                    chunk = response.read(64 * 1024)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                if response:
+                    response.close()
+                    response.release_conn()
+
+        return StreamingResponse(
+            file_stream(),
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            }
         )
 
     except HTTPException as he:
@@ -590,3 +627,63 @@ async def download_contract_by_id(contract_id: str):
     except Exception as e:
         print(f"❌ 下载文件发生异常错误: {str(e)}")
         raise HTTPException(status_code=404, detail="合同附件文件未找到")
+
+
+# --- 8. 检查单个合同文件是否存在（轻量级预检，前端在触发下载前调用）---
+async def check_contract_file_exists(contract_id: str) -> dict:
+    """查询数据库和文件系统，确认合同附件是否就绪，返回 JSON 供前端判断"""
+    try:
+        contract = await contract_collection.find_one(
+            {"contractId": contract_id, "isDeleted": False}
+        )
+        if not contract or not contract.get("fileName"):
+            print(f"📎 [文件检查] contractId={contract_id} → 数据库无文件记录")
+            return {"exists": False, "message": "该合同未关联任何附件文件"}
+
+        real_file_name = contract["fileName"]
+
+        try:
+            minio_client.stat_object(MINIO_BUCKET, real_file_name)
+        except S3Error:
+            print(f"📎 [文件检查] contractId={contract_id} → MinIO 中不存在: {real_file_name}")
+            return {"exists": False, "message": "服务器上未找到合同附件文件，可能已被删除"}
+
+        print(f"📎 [文件检查] contractId={contract_id} → 文件就绪: {real_file_name}")
+        return {
+            "exists": True,
+            "fileName": contract.get("name", contract_id),
+            "message": "文件就绪，可以下载",
+        }
+    except Exception as e:
+        print(f"❌ [文件检查] contractId={contract_id} → 异常: {str(e)}")
+        return {"exists": False, "message": f"检查文件状态时出错: {str(e)}"}
+
+
+# --- 9. 批量检查合同文件是否存在 ---
+async def check_batch_files_exist(contract_ids: List[str]) -> dict:
+    """批量预检：返回各文件的就绪状态，前端据此决定是否触发打包下载"""
+    try:
+        results = []
+        for cid in contract_ids:
+            r = await check_contract_file_exists(cid)
+            results.append({"contractId": cid, "exists": r["exists"], "message": r["message"]})
+
+        exists_list = [r for r in results if r["exists"]]
+        missing_list = [r for r in results if not r["exists"]]
+
+        all_exist = len(missing_list) == 0
+        print(f"📦 [批量文件检查] 共 {len(contract_ids)} 个，就绪 {len(exists_list)}，缺失 {len(missing_list)}")
+
+        return {
+            "allExist": all_exist,
+            "total": len(contract_ids),
+            "existsCount": len(exists_list),
+            "missingCount": len(missing_list),
+            "missingIds": [r["contractId"] for r in missing_list],
+            "details": results,
+        }
+    except Exception as e:
+        print(f"❌ [批量文件检查] 异常: {str(e)}")
+        return {"allExist": False, "total": len(contract_ids), "existsCount": 0,
+                "missingCount": len(contract_ids), "missingIds": contract_ids,
+                "details": [], "error": str(e)}

@@ -46,13 +46,14 @@ async def set_fields(data: FieldsUpdate):
 async def update_config(item: ConfigUpdate):
     return await update_setting(item)
 
-# ── 6. 操作日志（分页）───────────────────────────────────────
+# ── 6. 操作日志（分页 + 分类筛选）─────────────────────────────
 @router.get("/logs")
 async def logs(
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
+    logType: str = Query("all"),
 ):
-    return await get_logs(page=page, pageSize=pageSize)
+    return await get_logs(page=page, pageSize=pageSize, logType=logType)
 
 # ── 7. 修改管理员密码 ─────────────────────────────────────────
 @router.post("/update_password")

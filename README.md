@@ -1,4 +1,4 @@
-# 🏢 鸿瑞办公合同管理系统 — 智链合同 `v1.4.8`
+# 🏢 鸿瑞办公合同管理系统 — 智链合同 `v1.5.0`
 
 > 一款面向企业的**数字化合同全生命周期管理平台**，集合同编制、签署、归档、统计分析、文件管理于一体。
 
@@ -7,12 +7,12 @@
 ## 📋 项目概况
 
 ### 系统简介
-**智链合同**是一个现代化的合同数字管理系统，为企业提供高效、安全的合同生命周期管理解决方案。系统支持**管理员**、**普通用户**和**访客**三种角色，采用 **MongoDB** 数据库存储元数据，**NAS** 存储电子文件，满足不同场景的业务需求。
+**智链合同**是一个现代化的合同数字管理系统，为企业提供高效、安全的合同生命周期管理解决方案。系统支持**管理员**、**普通用户**和**访客**三种角色，采用 **MongoDB** 数据库存储元数据，**MinIO** 对象存储管理电子文件，满足不同场景的业务需求。
 
 ### 核心功能
 - ✅ **用户认证体系** — 管理员登录、用户注册审核、访客无密码进入、安全退出、密码修改
 - 📋 **合同信息管理** — 新增、编辑、删除、查询合同（数据持久化到 MongoDB）
-- 📁 **文件管理** — 支持电子合同文件上传到 NAS、自动识别合同名称、在线预览/下载、批量打包下载
+- 📁 **文件管理** — 支持电子合同文件上传到 MinIO 对象存储、自动识别合同名称、在线预览/下载、批量打包下载
 - 📊 **可视化分析** — 合同分类占比饼图、金额统计、状态分布、大额高亮预警
 - 🔍 **智能搜索与筛选** — 按关键词、分类、状态、客户类型、金额区间等 7 个维度组合筛选
 - 🎯 **字段定制化** — 用户可自定义显示/隐藏表格列，管理员可新增自定义字段
@@ -63,11 +63,11 @@ HTTP 客户端：axios 1.16 + fetch
 
 ### 文件存储
 ```
-存储系统：群晖 NAS
-测试环境：\\192.168.1.111\HR_NAS\contracts
-生产环境：/contracts（Docker 挂载）
-文件管理：后端负责文件读写，MongoDB 存储元数据
-权限管理：NAS 用户级别权限控制
+存储系统：MinIO 对象存储（S3 兼容）
+测试环境：192.168.1.111:9000
+生产环境：minio-1:9000（Docker 内网）
+Bucket：contracts（启动时自动创建）
+文件管理：MinIO Python SDK 读写，MongoDB 存储元数据（fileName）
 ```
 
 ---
@@ -134,7 +134,7 @@ HRcontract_admin/
 - **Node.js** 16+ 和 npm 8+
 - **Python** 3.8+ 和 pip
 - **MongoDB** 4.0+ 正常运行
-- **NAS 挂载**：将群晖 NAS 共享目录挂载到本地（或 Docker 映射）
+- **MinIO** 对象存储服务（或 Docker Compose 自动部署）
 - **现代浏览器**（Chrome / Firefox / Edge）
 
 ### 1️⃣ 安装依赖
@@ -152,21 +152,18 @@ pip install -r requirements.txt
 
 ### 2️⃣ 配置环境
 
-#### MongoDB 连接
+#### MongoDB 连接（以及 MinIO）
 编辑 `src/api/database.py`，切换 `USE_PRODUCTION` 变量：
 ```python
-USE_PRODUCTION = False   # 测试环境（192.168.1.111:32768）
-USE_PRODUCTION = True    # 生产环境（Docker mongo-1:27017）
+USE_PRODUCTION = False   # 测试环境（MongoDB 192.168.1.111:32768, MinIO 192.168.1.111:9000）
+USE_PRODUCTION = True    # 生产环境（Docker mongo-1:27017, minio-1:9000）
 ```
-或通过环境变量覆盖：`export MONGO_URL="mongodb://..."`
-
-#### NAS 文件存储
-```powershell
-# 测试环境Windows 挂载 NAS
-net use \\192.168.1.111\HR_NAS\contracts /user:admin password /persistent:yes
-
-# 或通过环境变量指定
-export CONTRACT_UPLOAD_DIR="/mnt/nas/contracts"
+或通过环境变量覆盖：
+```bash
+export MONGO_URL="mongodb://..."
+export MINIO_URL="minio-1:9000"
+export MINIO_ACCESS_KEY="admin"
+export MINIO_SECRET_KEY="Hrbg@85550780"
 ```
 
 ### 3️⃣ 启动应用
@@ -242,7 +239,7 @@ npm run preview      # 预览打包结果
                                   ↓  Service（业务逻辑）
                                   ↓  Database（共享连接）
                             MongoDB 数据库（元数据）
-                            NAS 共享目录（文件数据）
+                            MinIO 对象存储（文件数据）
 ```
 
 ---
@@ -305,7 +302,7 @@ npm run preview      # 预览打包结果
 **A:** 检查 `database.py` 中 `MONGO_URL` 是否正确，确认 MongoDB 服务正在运行，网络策略是否放行端口。
 
 ### Q: 文件上传后看不到下载按钮
-**A:** 检查 `fileUrl` 是否为空，确认 NAS 路径可访问，查看后端日志是否有文件保存错误。
+**A:** 检查 `fileUrl` 是否为空，确认 MinIO 服务是否正常运行，查看后端日志是否有文件存储错误。
 
 ### Q: 访客模式看到的合同数量不对
 **A:** 数量由系统配置 `guest_data_limit` 动态控制，管理员可在"系统设置 → 参数配置"中调整。
@@ -343,8 +340,8 @@ axios@^1.16.0
 ```
 fastapi, uvicorn
 motor (异步 MongoDB 驱动)
-pydantic
-python-multipart
+pydantic, python-multipart
+minio (MinIO 对象存储 SDK)
 ```
 
 ---
@@ -356,6 +353,54 @@ python-multipart
 ---
 
 ## 📌 版本更新与 Bug 修复日志
+
+
+
+### v1.5.0 (2026-07-08)
+**📦 MinIO 对象存储迁移 & 下载链路全面修复**
+
+- **[架构升级] 文件存储 NAS → MinIO 对象存储**
+  - `database.py` 新增 MinIO 客户端配置，复用 `USE_PRODUCTION` 开关自动切换测试/生产端点
+  - 测试环境 `192.168.1.111:9000`，生产环境 `minio-1:9000`（Docker 内网）
+  - 支持环境变量覆盖：`MINIO_URL`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、`MINIO_BUCKET`
+  - 启动时自动检测并创建 `contracts` Bucket
+  - 全部文件 CRUD 操作（上传/更新/删除/下载/批量下载/文件存在检查）从本地磁盘操作改为 MinIO Python SDK API
+  - 移除 `UPLOAD_DIR` / `PROJECT_ROOT` 本地路径逻辑，清理所有 NAS 路径依赖
+
+- **[基础设施] Docker 编排简化**
+  - `docker-compose.yaml` 新增 `minio-1` 独立容器（API 9000 + 控制台 9001），时区 `TZ: Asia/Shanghai`
+  - 后端容器移除 NAS 卷挂载（`/volume1/contracts:/contracts`）和 `CONTRACT_UPLOAD_DIR` 环境变量
+  - 新增 `MINIO_URL: "minio-1:9000"` 环境变量，后端 `depends_on` 加入 `minio-1`
+  - `Dockerfile.backend` 简化：移除 UTF-16→UTF-8 编码转换步骤，`requirements.txt` 已为 UTF-8
+  - `requirements.txt` 新增 `minio` 依赖，文件编码从 UTF-16LE 转为 UTF-8
+
+- **[开发启动] MinIO 健康检查**
+  - `start_dev.cmd` 新增 `[2/4]` 步骤：测试 `192.168.1.111:9000` 端口连通性，不可达则自动 `docker compose up -d minio-1`
+
+- **[BUG FIX] 单文件下载返回 1KB 空文件（3 项修复）**
+  - **Vite 代理缺失**：`vite.config.js` 新增 `/api` 代理 → `http://localhost:9080`，下载请求不再被 Vite 吞掉
+  - **MinIO 流式读取不稳定**：`response.stream(amt)` → 显式 `response.read(64KB)` 循环分块读取
+  - **中文文件名 HTTP 头编码崩溃**：`Content-Disposition` 中的中文合同名使用 RFC 5987 `filename*=UTF-8''` URL-encode，根治 `latin-1 codec can't encode` 异常
+
+- **[BUG FIX] 批量下载 ZIP 文件损坏（2 项修复）**
+  - **BytesIO 迭代破坏二进制**：`BytesIO` 直接传给 `StreamingResponse` 会按 `\n` 换行符分割，ZIP 二进制数据被破坏 → 改为 `zip_stream()` 分块生成器 `read(64KB)` 循环
+  - **ZIP 包内文件名显示 MinIO 对象名**：改为始终使用合同名称（`c.get('name')`），重名时自动用 `contractNo` 区分
+
+- **[BUG FIX] 文件名编码优化**
+  - MinIO 对象名从 `时间戳_原始中文文件名.pdf` 改为 `contractId_时间戳.pdf`，从源头规避所有中文编码隐患
+  - 下载时的显示名仍用合同名称，通过 RFC 5987 安全写入 HTTP 头
+
+- **[生产优化] Nginx 流式代理**
+  - 新增 `proxy_buffering off` + `proxy_read_timeout 300s` + `proxy_send_timeout 300s`，大文件下载不卡顿
+
+- **[BUG FIX] 操作日志分类筛选分页错误（3 项修复）**
+  - **根因**：筛选在前端做（`applyLogFilter` 只过滤当前页数据），分页在后端做（`total` 始终为全量 220 条），两者脱节
+  - **后端**：`get_logs` 新增 `logType` 参数，MongoDB `$regex` 在数据库层按 action 内容分类筛选，`count_documents(query)` 返回筛选后真实总数
+  - **前端**：`handleLogFilterChange` 切换分类时重置页码并调用服务端筛选 API，移除客户端 `applyLogFilter`，0 结果时自动隐藏分页
+
+- **影响文件**：`database.py`、`contract_service.py`、`settings_service.py`、`requirements.txt`、`docker-compose.yaml`、`Dockerfile.backend`、`nginx.conf`、`vite.config.js`、`start_dev.cmd`、`contracts.py`、`settings.py`、`systemSettings.js`、`SystemSettings.vue`、`contractManager.js`
+
+---
 
 ### v1.4.9 (2026-07-02)
 **🔒 Token 安全加固 & 用户信息编辑**
@@ -553,4 +598,4 @@ python-multipart
 
 ---
 
-*最后更新：2026年7月2日*
+*最后更新：2026年7月8日*
